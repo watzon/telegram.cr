@@ -1,0 +1,31 @@
+name: telegram
+version: 0.1.0
+
+authors:
+  - Chris Watson <cawatson1993@gmail.com>
+
+dependencies:
+  habitat:
+    github: luckyframework/habitat
+    version: 0.4.7
+  dexter:
+    github: luckyframework/dexter
+    version: ~> 0.3.3
+  db:
+    github: crystal-lang/crystal-db
+    version: ~> 0.10.1
+  http_proxy:
+    github: mamantoha/http_proxy
+    branch: master
+  html5:
+    github: naqvis/crystal-html5
+    branch: master
+
+development_dependencies:
+  spectator:
+    github: icy-arctic-fox/spectator
+    branch: master
+
+crystal: 1.3.0
+
+license: MIT

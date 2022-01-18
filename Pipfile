@@ -1,0 +1,25 @@
+[[source]]
+url = "https://pypi.org/simple"
+verify_ssl = true
+name = "pypi"
+
+[packages]
+mkdocs-material = "*"
+mkdocstrings = "*"
+mkdocs-gen-files = "*"
+mkdocstrings-crystal = ">= 0.2.2"
+mkdocs-section-index = "*"
+mkdocs-versioning = "*"
+mkdocs-literate-nav = ">= 0.3.0b1"
+mike = "*"
+mkdocs-macros-plugin = "*"
+pystache = "*"
+gitchangelog = "*"
+
+[dev-packages]
+
+[requires]
+python_version = "3.8"
+
+[pipenv]
+allow_prereleases = true
