@@ -3,7 +3,7 @@ require "./api"
 module Telegram
   # The available event types for `EventHandler`.
   @[Flags]
-  enum UpdateAction : UInt64
+  enum UpdateAction : UInt128
     Update
     Message
     ReplyMessage
@@ -45,19 +45,19 @@ module Telegram
     ChannelChatCreated
     MigrateFromChatId
     PinnedMessage
-    # Game
-    # Poll
-    # VideoNote
-    # Invoice
-    # SuccessfulPayment
-    # ConnectedWebsite
-    # PassportData
-    # PollAnswer
-    # ProximityAlertTriggered
-    # VoiceChatScheduled
-    # VoiceChatStarted
-    # VoiceChatEnded
-    # VoiceChatParticipantsInvited
+    Game
+    Poll
+    VideoNote
+    Invoice
+    SuccessfulPayment
+    ConnectedWebsite
+    PassportData
+    PollAnswer
+    ProximityAlertTriggered
+    VoiceChatScheduled
+    VoiceChatStarted
+    VoiceChatEnded
+    VoiceChatParticipantsInvited
     ReplyMarkup
 
     Dice        # 🎲
@@ -68,11 +68,11 @@ module Telegram
     SlotMachine # 🎰
     Bowling     # 🎳
 
-    # BotMessage
-    # UserMessage
-    # ChannelMessage
-    # ChannelForwardMessage
-    # AnonymousAdminMessage
+    BotMessage
+    UserMessage
+    ChannelMessage
+    ChannelForwardMessage
+    AnonymousAdminMessage
 
     # Entities
     Mention

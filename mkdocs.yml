@@ -44,7 +44,7 @@ plugins:
   - macros:
       modules:
         - mkdocstrings.handlers.crystal.macros
-      include_dir: .
+      # include_dir: .
 
 markdown_extensions:
   - meta
