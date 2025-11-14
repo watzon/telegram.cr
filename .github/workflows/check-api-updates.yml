@@ -1,0 +1,149 @@
+name: Check for Telegram Bot API Updates
+
+on:
+  schedule:
+    # Run daily at 2:00 AM UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch: # Allow manual triggering
+
+jobs:
+  check-for-updates:
+    runs-on: ubuntu-latest
+    outputs:
+      has-changes: ${{ steps.check-changes.outputs.has-changes }}
+      commit-sha: ${{ steps.check-changes.outputs.commit-sha }}
+      commit-date: ${{ steps.check-changes.outputs.commit-date }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Ruby for GitHub API client
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.2'
+
+      - name: Check for Telegram Bot API Spec changes
+        id: check-changes
+        run: |
+          # Install Octokit gem for GitHub API interactions
+          gem install octokit
+
+          # Create Ruby script to check for changes
+          cat > check_changes.rb << 'EOF'
+          require 'octokit'
+          require 'json'
+          require 'time'
+
+          # Initialize GitHub client
+          client = Octokit::Client.new(access_token: ENV['GITHUB_TOKEN'])
+
+          # Get the latest commit from telegram-bot-api-spec
+          commits = client.commits('PaulSonOfLars/telegram-bot-api-spec', since: Time.now - 86400) # 24 hours ago
+
+          if commits.empty?
+            puts "has-changes=false"
+            puts "commit-sha=none"
+            puts "commit-date=none"
+            exit 0
+          end
+
+          latest_commit = commits.first
+          commit_sha = latest_commit.sha
+          commit_date = latest_commit.commit.author.date.iso8601
+
+          # Check if the api.min.json file changed
+          files = client.commit('PaulSonOfLars/telegram-bot-api-spec', commit_sha).files
+          api_file_changed = files.any? { |file| file.filename == 'api.min.json' || file.filename == 'api.json' }
+
+          if api_file_changed
+            puts "has-changes=true"
+            puts "commit-sha=#{commit_sha}"
+            puts "commit-date=#{commit_date}"
+            puts "::notice::Found changes to API spec in commit #{commit_sha} from #{commit_date}"
+          else
+            puts "has-changes=false"
+            puts "commit-sha=none"
+            puts "commit-date=none"
+            puts "::notice::No changes to API spec files in the last 24 hours"
+          end
+          EOF
+
+          ruby check_changes.rb
+
+  generate-and-pr:
+    needs: check-for-updates
+    if: needs.check-for-updates.outputs.has-changes == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Crystal
+        uses: crystal-lang/install-crystal@v1
+        with:
+          crystal: latest
+
+      - name: Install shards
+        run: shards install
+
+      - name: Generate Telegram client
+        run: |
+          ./generate.sh
+
+      - name: Check for generated changes
+        id: check-generated
+        run: |
+          if git diff --quiet HEAD -- src/telegram/generated/; then
+            echo "has-generated-changes=false" >> $GITHUB_OUTPUT
+          else
+            echo "has-generated-changes=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create Pull Request
+        if: steps.check-generated.outputs.has-generated-changes == 'true'
+        uses: peter-evans/create-pull-request@v5
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: |
+            chore: update telegram bot api client
+
+            - Auto-generated from telegram-bot-api-spec changes
+            - Commit: ${{ needs.check-for-updates.outputs.commit-sha }}
+            - Date: ${{ needs.check-for-updates.outputs.commit-date }}
+          title: 'chore: update telegram bot api client'
+          body: |
+            ## 🤖 Automated Update
+
+            This PR contains automated updates to the Telegram Bot API client based on changes detected in the [telegram-bot-api-spec](https://github.com/PaulSonOfLars/telegram-bot-api-spec) repository.
+
+            ### 📊 Changes Summary
+            - **Source Commit**: `${{ needs.check-for-updates.outputs.commit-sha }}`
+            - **Commit Date**: `${{ needs.check-for-updates.outputs.commit-date }}`
+            - **Updated Files**: Generated Telegram client code
+
+            ### 🔍 What was updated
+            - `src/telegram/generated/telegram.cr` - Type definitions and API models
+            - `src/telegram/generated/client.cr` - HTTP client implementation
+
+            ### ✅ Verification
+            - Generated using the latest Crystal compiler
+            - All type definitions updated from official API spec
+            - Client methods regenerated to match latest API
+
+            ---
+
+            *This PR was created automatically by [GitHub Actions](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})*
+          branch: auto/telegram-api-update
+          delete-branch: true
+          labels: |
+            automated
+            telegram-api-update

@@ -1,0 +1,21 @@
+name: telegram
+version: 0.1.0
+
+authors:
+  - Chris Watson <cawatson1993@gmail.com>
+
+crystal: '>= 1.18.2'
+
+license: MIT
+
+dependencies:
+  crygen:
+    github: tamdaz/crygen
+
+development_dependencies:
+  webmock:
+    github: manastech/webmock.cr
+
+targets:
+  telegram-gen:
+    main: src/bin/telegram-gen
