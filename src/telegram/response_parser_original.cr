@@ -206,7 +206,7 @@ module Telegram
     private def parse_string(value : JSON::Any) : String
       case value.raw
       when Nil
-        ""  # Convert nil to empty string for compatibility
+        "" # Convert nil to empty string for compatibility
       when String
         value.as_s
       when Bool, Int32, Int64, Float64
@@ -887,7 +887,7 @@ module Telegram
 
       # Try to extract total count if present
       total_count = json_response["total_count"]?.try(&.as_i) ||
-                   json_response["total"]?.try(&.as_i) || 0
+                    json_response["total"]?.try(&.as_i) || 0
 
       # Parse the actual results
       if return_type.starts_with?("Array(")
@@ -902,4 +902,3 @@ module Telegram
     end
   end
 end
-

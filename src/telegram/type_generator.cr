@@ -6,20 +6,20 @@ module Telegram
 
     # Map of Telegram API types to Crystal types
     TYPE_MAPPING = {
-      "Integer"   => "Int64",         # Telegram uses 64-bit integers for IDs
+      "Integer"   => "Int64", # Telegram uses 64-bit integers for IDs
       "Float"     => "Float64",
       "String"    => "String",
       "Boolean"   => "Bool",
       "True"      => "Bool",
       "Array"     => "Array",
-      "InputFile" => "Telegram::InputFile | File | IO",     # Telegram's InputFile type
+      "InputFile" => "Telegram::InputFile | File | IO", # Telegram's InputFile type
       # Additional common Telegram types that might appear in specs
-      "Integer32" => "Int32",
-      "Integer64" => "Int64",
-      "Timestamp" => "Time",         # Unix timestamps
-      "Seconds"   => "Int32",        # Duration in seconds
-      "Milliseconds" => "Int64",     # Duration in milliseconds
-      "Bytes"     => "Bytes",        # Raw binary data
+      "Integer32"    => "Int32",
+      "Integer64"    => "Int64",
+      "Timestamp"    => "Time",  # Unix timestamps
+      "Seconds"      => "Int32", # Duration in seconds
+      "Milliseconds" => "Int64", # Duration in milliseconds
+      "Bytes"        => "Bytes", # Raw binary data
     }
 
     # Rename map for conflicting type names
@@ -30,33 +30,33 @@ module Telegram
     # Fields that should use flexible integer types (Int32 | Int64) for compatibility
     # This follows Tourmaline's approach for API compatibility
     FLEXIBLE_INTEGER_FIELDS = {
-      "chat_id" => true,
-      "message_id" => true,
-      "user_id" => true,
-      "from_user_id" => true,
+      "chat_id"                 => true,
+      "message_id"              => true,
+      "user_id"                 => true,
+      "from_user_id"            => true,
       "forward_from_message_id" => true,
-      "reply_to_message_id" => true,
-      "migrate_to_chat_id" => true,
-      "migrate_from_chat_id" => true,
-      "super_group_id" => true,
-      "channel_id" => true,
-      "sender_chat_id" => true,
-      "forward_from_chat_id" => true,
-      "photo_size_file_id" => true,
-      "file_id" => true,
-      "file_unique_id" => true,
-      "thumb_file_id" => true,
-      "video_file_id" => true,
-      "audio_file_id" => true,
-      "document_file_id" => true,
-      "sticker_file_id" => true,
-      "voice_file_id" => true,
-      "video_note_file_id" => true,
-      "animation_file_id" => true,
-      "mask_position_point" => true,
-      "x_shift" => true,
-      "y_shift" => true,
-      "scale" => true,
+      "reply_to_message_id"     => true,
+      "migrate_to_chat_id"      => true,
+      "migrate_from_chat_id"    => true,
+      "super_group_id"          => true,
+      "channel_id"              => true,
+      "sender_chat_id"          => true,
+      "forward_from_chat_id"    => true,
+      "photo_size_file_id"      => true,
+      "file_id"                 => true,
+      "file_unique_id"          => true,
+      "thumb_file_id"           => true,
+      "video_file_id"           => true,
+      "audio_file_id"           => true,
+      "document_file_id"        => true,
+      "sticker_file_id"         => true,
+      "voice_file_id"           => true,
+      "video_note_file_id"      => true,
+      "animation_file_id"       => true,
+      "mask_position_point"     => true,
+      "x_shift"                 => true,
+      "y_shift"                 => true,
+      "scale"                   => true,
     }
 
     def initialize(@output_dir : String)
@@ -65,18 +65,18 @@ module Telegram
 
     # Main API types that should be classes (not structs)
     CLASS_TYPES = {
-      "Message" => true,
-      "Update" => true,
-      "User" => true,
-      "Chat" => true,
-      "BotCommand" => true,
-      "CallbackQuery" => true,
-      "InlineQuery" => true,
-      "ShippingQuery" => true,
-      "PreCheckoutQuery" => true,
-      "Poll" => true,
-      "Game" => true,
-      "Invoice" => true,
+      "Message"           => true,
+      "Update"            => true,
+      "User"              => true,
+      "Chat"              => true,
+      "BotCommand"        => true,
+      "CallbackQuery"     => true,
+      "InlineQuery"       => true,
+      "ShippingQuery"     => true,
+      "PreCheckoutQuery"  => true,
+      "Poll"              => true,
+      "Game"              => true,
+      "Invoice"           => true,
       "SuccessfulPayment" => true,
     }
     SKIP_TYPES = {
@@ -117,7 +117,7 @@ module Telegram
 
       # Basic types that should always be available
       basic_types = [
-        "Update", "Message", "User", "Chat", "MessageEntity", "PhotoSize"
+        "Update", "Message", "User", "Chat", "MessageEntity", "PhotoSize",
       ]
 
       basic_types.each do |type_name|

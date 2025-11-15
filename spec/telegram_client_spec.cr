@@ -5,33 +5,33 @@ require "../src/telegram/generated/telegram"
 
 # Mock successful Telegram API response
 MOCK_SUCCESS_RESPONSE = {
-  "ok" => true,
+  "ok"     => true,
   "result" => {
-    "id" => 123456789,
-    "is_bot" => true,
+    "id"         => 123456789,
+    "is_bot"     => true,
     "first_name" => "Test Bot",
-    "username" => "testbot"
-  }
+    "username"   => "testbot",
+  },
 }.to_json
 
 MOCK_MESSAGE_RESPONSE = {
-  "ok" => true,
+  "ok"     => true,
   "result" => {
     "message_id" => 123,
-    "from" => {
-      "id" => 123456789,
-      "is_bot" => true,
+    "from"       => {
+      "id"         => 123456789,
+      "is_bot"     => true,
       "first_name" => "Test Bot",
-      "username" => "testbot"
+      "username"   => "testbot",
     },
     "chat" => {
-      "id" => 987654321,
+      "id"         => 987654321,
       "first_name" => "Test User",
-      "type" => "private"
+      "type"       => "private",
     },
     "date" => 1640000000,
-    "text" => "Hello"
-  }
+    "text" => "Hello",
+  },
 }.to_json
 
 describe Telegram::Client::APIClient do
@@ -233,8 +233,8 @@ describe Telegram::Client::APIClient do
             payload.includes?("fake photo bytes").should be_true
 
             response_body = {
-              "ok" => true,
-              "result" => [JSON.parse(MOCK_MESSAGE_RESPONSE)["result"]]
+              "ok"     => true,
+              "result" => [JSON.parse(MOCK_MESSAGE_RESPONSE)["result"]],
             }.to_json
             HTTP::Client::Response.new(200, body: response_body)
           end
@@ -244,7 +244,7 @@ describe Telegram::Client::APIClient do
             type: "photo",
             media: Telegram::InputFile.from_data("fake photo bytes", "photo.jpg"),
             caption: "Album photo"
-          )
+          ),
         ]
 
         client.send_media_group(chat_id: 987654321, media: media)
@@ -298,9 +298,9 @@ describe Telegram::Client::APIClient do
     it "handles API errors correctly" do
       WebMock.wrap do
         error_response = {
-          "ok" => false,
-          "error_code" => 400,
-          "description" => "Bad Request: chat not found"
+          "ok"          => false,
+          "error_code"  => 400,
+          "description" => "Bad Request: chat not found",
         }.to_json
 
         WebMock.stub("POST", "https://api.telegram.org/bottest_token/sendMessage")

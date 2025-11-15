@@ -8,7 +8,6 @@ require "../http_client_wrapper"
 
 module Telegram
   module Client
-
     # Main API client for Telegram Bot API with enhanced HTTP features
     # Features: persistent connections, retries, timeouts, proxy support
     class APIClient
@@ -64,9 +63,9 @@ module Telegram
       def get_updates(offset : Int32? = nil, limit : Int32? = nil, timeout : Int32? = nil, allowed_updates : Array(String)? = nil) : Array(Update)
         # Collect parameters for file detection
         params_hash = {
-          "offset" => offset,
-          "limit" => limit,
-          "timeout" => timeout,
+          "offset"          => offset,
+          "limit"           => limit,
+          "timeout"         => timeout,
           "allowed_updates" => allowed_updates,
         }
 
@@ -89,7 +88,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Array(Update).from_json(result_data.to_json)
@@ -104,13 +103,13 @@ module Telegram
       def set_webhook(url : String, certificate : Telegram::InputFile | File | IO? = nil, ip_address : String? = nil, max_connections : Int32? = nil, allowed_updates : Array(String)? = nil, drop_pending_updates : Bool? = nil, secret_token : String? = nil) : Bool
         # Collect parameters for file detection
         params_hash = {
-          "url" => url,
-          "certificate" => certificate,
-          "ip_address" => ip_address,
-          "max_connections" => max_connections,
-          "allowed_updates" => allowed_updates,
+          "url"                  => url,
+          "certificate"          => certificate,
+          "ip_address"           => ip_address,
+          "max_connections"      => max_connections,
+          "allowed_updates"      => allowed_updates,
           "drop_pending_updates" => drop_pending_updates,
-          "secret_token" => secret_token,
+          "secret_token"         => secret_token,
         }
 
         # Runtime detection: check if any parameters contain actual file data
@@ -119,14 +118,14 @@ module Telegram
         if has_files
           # Use multipart form data for file uploads
           boundary, form_body = build_multipart_form_with_files(params_hash)
-          
+
           # Make HTTP request with multipart form using enhanced client
           url = "#{@api_url}/bot#{@token}/setWebhook"
           response = @http_client.post_multipart(url, {boundary, form_body})
         else
           # Use JSON request when no files are present
           params = build_request_hash_from_hash(params_hash)
-          
+
           # Make HTTP request using enhanced client
           url = "#{@api_url}/bot#{@token}/setWebhook"
           response = @http_client.post(url,
@@ -139,7 +138,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Bool.from_json(result_data.to_json)
@@ -172,7 +171,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Bool.from_json(result_data.to_json)
@@ -183,9 +182,9 @@ module Telegram
       #
       # Returns: WebhookInfo
       # See: https://core.telegram.org/bots/api#getwebhookinfo
-      def get_webhook_info() : WebhookInfo
+      def get_webhook_info : WebhookInfo
         # Build JSON request parameters (method never accepts files)
-        params = build_request_hash(        )
+        params = build_request_hash()
 
         # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/getWebhookInfo"
@@ -198,7 +197,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         WebhookInfo.from_json(result_data.to_json)
@@ -209,9 +208,9 @@ module Telegram
       #
       # Returns: User
       # See: https://core.telegram.org/bots/api#getme
-      def get_me() : User
+      def get_me : User
         # Build JSON request parameters (method never accepts files)
-        params = build_request_hash(        )
+        params = build_request_hash()
 
         # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/getMe"
@@ -224,7 +223,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         User.from_json(result_data.to_json)
@@ -235,9 +234,9 @@ module Telegram
       #
       # Returns: Bool
       # See: https://core.telegram.org/bots/api#logout
-      def log_out() : Bool
+      def log_out : Bool
         # Build JSON request parameters (method never accepts files)
-        params = build_request_hash(        )
+        params = build_request_hash()
 
         # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/logOut"
@@ -250,7 +249,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Bool.from_json(result_data.to_json)
@@ -261,9 +260,9 @@ module Telegram
       #
       # Returns: Bool
       # See: https://core.telegram.org/bots/api#close
-      def close() : Bool
+      def close : Bool
         # Build JSON request parameters (method never accepts files)
-        params = build_request_hash(        )
+        params = build_request_hash()
 
         # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/close"
@@ -276,7 +275,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Bool.from_json(result_data.to_json)
@@ -290,21 +289,21 @@ module Telegram
       def send_message(chat_id : Int32 | String, text : String, business_connection_id : String? = nil, message_thread_id : Int32? = nil, direct_messages_topic_id : Int32? = nil, parse_mode : String? = nil, entities : Array(MessageEntity)? = nil, link_preview_options : LinkPreviewOptions? = nil, disable_notification : Bool? = nil, protect_content : Bool? = nil, allow_paid_broadcast : Bool? = nil, message_effect_id : String? = nil, suggested_post_parameters : SuggestedPostParameters? = nil, reply_parameters : ReplyParameters? = nil, reply_markup : InlineKeyboardMarkup | ReplyKeyboardMarkup | ReplyKeyboardRemove | ForceReply? = nil) : Message
         # Collect parameters for file detection
         params_hash = {
-          "business_connection_id" => business_connection_id,
-          "chat_id" => chat_id,
-          "message_thread_id" => message_thread_id,
-          "direct_messages_topic_id" => direct_messages_topic_id,
-          "text" => text,
-          "parse_mode" => parse_mode,
-          "entities" => entities,
-          "link_preview_options" => link_preview_options,
-          "disable_notification" => disable_notification,
-          "protect_content" => protect_content,
-          "allow_paid_broadcast" => allow_paid_broadcast,
-          "message_effect_id" => message_effect_id,
+          "business_connection_id"    => business_connection_id,
+          "chat_id"                   => chat_id,
+          "message_thread_id"         => message_thread_id,
+          "direct_messages_topic_id"  => direct_messages_topic_id,
+          "text"                      => text,
+          "parse_mode"                => parse_mode,
+          "entities"                  => entities,
+          "link_preview_options"      => link_preview_options,
+          "disable_notification"      => disable_notification,
+          "protect_content"           => protect_content,
+          "allow_paid_broadcast"      => allow_paid_broadcast,
+          "message_effect_id"         => message_effect_id,
           "suggested_post_parameters" => suggested_post_parameters,
-          "reply_parameters" => reply_parameters,
-          "reply_markup" => reply_markup,
+          "reply_parameters"          => reply_parameters,
+          "reply_markup"              => reply_markup,
         }
 
         # Build JSON request parameters (method never accepts files)
@@ -337,7 +336,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Message.from_json(result_data.to_json)
@@ -351,15 +350,15 @@ module Telegram
       def forward_message(chat_id : Int32 | String, from_chat_id : Int32 | String, message_id : Int32, message_thread_id : Int32? = nil, direct_messages_topic_id : Int32? = nil, video_start_timestamp : Int32? = nil, disable_notification : Bool? = nil, protect_content : Bool? = nil, suggested_post_parameters : SuggestedPostParameters? = nil) : Message
         # Collect parameters for file detection
         params_hash = {
-          "chat_id" => chat_id,
-          "message_thread_id" => message_thread_id,
-          "direct_messages_topic_id" => direct_messages_topic_id,
-          "from_chat_id" => from_chat_id,
-          "video_start_timestamp" => video_start_timestamp,
-          "disable_notification" => disable_notification,
-          "protect_content" => protect_content,
+          "chat_id"                   => chat_id,
+          "message_thread_id"         => message_thread_id,
+          "direct_messages_topic_id"  => direct_messages_topic_id,
+          "from_chat_id"              => from_chat_id,
+          "video_start_timestamp"     => video_start_timestamp,
+          "disable_notification"      => disable_notification,
+          "protect_content"           => protect_content,
           "suggested_post_parameters" => suggested_post_parameters,
-          "message_id" => message_id,
+          "message_id"                => message_id,
         }
 
         # Build JSON request parameters (method never accepts files)
@@ -386,7 +385,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Message.from_json(result_data.to_json)
@@ -400,13 +399,13 @@ module Telegram
       def forward_messages(chat_id : Int32 | String, from_chat_id : Int32 | String, message_ids : Array(Int32), message_thread_id : Int32? = nil, direct_messages_topic_id : Int32? = nil, disable_notification : Bool? = nil, protect_content : Bool? = nil) : Array(MessageId)
         # Collect parameters for file detection
         params_hash = {
-          "chat_id" => chat_id,
-          "message_thread_id" => message_thread_id,
+          "chat_id"                  => chat_id,
+          "message_thread_id"        => message_thread_id,
           "direct_messages_topic_id" => direct_messages_topic_id,
-          "from_chat_id" => from_chat_id,
-          "message_ids" => message_ids,
-          "disable_notification" => disable_notification,
-          "protect_content" => protect_content,
+          "from_chat_id"             => from_chat_id,
+          "message_ids"              => message_ids,
+          "disable_notification"     => disable_notification,
+          "protect_content"          => protect_content,
         }
 
         # Build JSON request parameters (method never accepts files)
@@ -431,7 +430,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Array(MessageId).from_json(result_data.to_json)
@@ -445,22 +444,22 @@ module Telegram
       def copy_message(chat_id : Int32 | String, from_chat_id : Int32 | String, message_id : Int32, message_thread_id : Int32? = nil, direct_messages_topic_id : Int32? = nil, video_start_timestamp : Int32? = nil, caption : String? = nil, parse_mode : String? = nil, caption_entities : Array(MessageEntity)? = nil, show_caption_above_media : Bool? = nil, disable_notification : Bool? = nil, protect_content : Bool? = nil, allow_paid_broadcast : Bool? = nil, suggested_post_parameters : SuggestedPostParameters? = nil, reply_parameters : ReplyParameters? = nil, reply_markup : InlineKeyboardMarkup | ReplyKeyboardMarkup | ReplyKeyboardRemove | ForceReply? = nil) : MessageId
         # Collect parameters for file detection
         params_hash = {
-          "chat_id" => chat_id,
-          "message_thread_id" => message_thread_id,
-          "direct_messages_topic_id" => direct_messages_topic_id,
-          "from_chat_id" => from_chat_id,
-          "message_id" => message_id,
-          "video_start_timestamp" => video_start_timestamp,
-          "caption" => caption,
-          "parse_mode" => parse_mode,
-          "caption_entities" => caption_entities,
-          "show_caption_above_media" => show_caption_above_media,
-          "disable_notification" => disable_notification,
-          "protect_content" => protect_content,
-          "allow_paid_broadcast" => allow_paid_broadcast,
+          "chat_id"                   => chat_id,
+          "message_thread_id"         => message_thread_id,
+          "direct_messages_topic_id"  => direct_messages_topic_id,
+          "from_chat_id"              => from_chat_id,
+          "message_id"                => message_id,
+          "video_start_timestamp"     => video_start_timestamp,
+          "caption"                   => caption,
+          "parse_mode"                => parse_mode,
+          "caption_entities"          => caption_entities,
+          "show_caption_above_media"  => show_caption_above_media,
+          "disable_notification"      => disable_notification,
+          "protect_content"           => protect_content,
+          "allow_paid_broadcast"      => allow_paid_broadcast,
           "suggested_post_parameters" => suggested_post_parameters,
-          "reply_parameters" => reply_parameters,
-          "reply_markup" => reply_markup,
+          "reply_parameters"          => reply_parameters,
+          "reply_markup"              => reply_markup,
         }
 
         # Build JSON request parameters (method never accepts files)
@@ -494,7 +493,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         MessageId.from_json(result_data.to_json)
@@ -508,14 +507,14 @@ module Telegram
       def copy_messages(chat_id : Int32 | String, from_chat_id : Int32 | String, message_ids : Array(Int32), message_thread_id : Int32? = nil, direct_messages_topic_id : Int32? = nil, disable_notification : Bool? = nil, protect_content : Bool? = nil, remove_caption : Bool? = nil) : Array(MessageId)
         # Collect parameters for file detection
         params_hash = {
-          "chat_id" => chat_id,
-          "message_thread_id" => message_thread_id,
+          "chat_id"                  => chat_id,
+          "message_thread_id"        => message_thread_id,
           "direct_messages_topic_id" => direct_messages_topic_id,
-          "from_chat_id" => from_chat_id,
-          "message_ids" => message_ids,
-          "disable_notification" => disable_notification,
-          "protect_content" => protect_content,
-          "remove_caption" => remove_caption,
+          "from_chat_id"             => from_chat_id,
+          "message_ids"              => message_ids,
+          "disable_notification"     => disable_notification,
+          "protect_content"          => protect_content,
+          "remove_caption"           => remove_caption,
         }
 
         # Build JSON request parameters (method never accepts files)
@@ -541,7 +540,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Array(MessageId).from_json(result_data.to_json)
@@ -555,23 +554,23 @@ module Telegram
       def send_photo(chat_id : Int32 | String, photo : Telegram::InputFile | File | IO | String, business_connection_id : String? = nil, message_thread_id : Int32? = nil, direct_messages_topic_id : Int32? = nil, caption : String? = nil, parse_mode : String? = nil, caption_entities : Array(MessageEntity)? = nil, show_caption_above_media : Bool? = nil, has_spoiler : Bool? = nil, disable_notification : Bool? = nil, protect_content : Bool? = nil, allow_paid_broadcast : Bool? = nil, message_effect_id : String? = nil, suggested_post_parameters : SuggestedPostParameters? = nil, reply_parameters : ReplyParameters? = nil, reply_markup : InlineKeyboardMarkup | ReplyKeyboardMarkup | ReplyKeyboardRemove | ForceReply? = nil) : Message
         # Collect parameters for file detection
         params_hash = {
-          "business_connection_id" => business_connection_id,
-          "chat_id" => chat_id,
-          "message_thread_id" => message_thread_id,
-          "direct_messages_topic_id" => direct_messages_topic_id,
-          "photo" => photo,
-          "caption" => caption,
-          "parse_mode" => parse_mode,
-          "caption_entities" => caption_entities,
-          "show_caption_above_media" => show_caption_above_media,
-          "has_spoiler" => has_spoiler,
-          "disable_notification" => disable_notification,
-          "protect_content" => protect_content,
-          "allow_paid_broadcast" => allow_paid_broadcast,
-          "message_effect_id" => message_effect_id,
+          "business_connection_id"    => business_connection_id,
+          "chat_id"                   => chat_id,
+          "message_thread_id"         => message_thread_id,
+          "direct_messages_topic_id"  => direct_messages_topic_id,
+          "photo"                     => photo,
+          "caption"                   => caption,
+          "parse_mode"                => parse_mode,
+          "caption_entities"          => caption_entities,
+          "show_caption_above_media"  => show_caption_above_media,
+          "has_spoiler"               => has_spoiler,
+          "disable_notification"      => disable_notification,
+          "protect_content"           => protect_content,
+          "allow_paid_broadcast"      => allow_paid_broadcast,
+          "message_effect_id"         => message_effect_id,
           "suggested_post_parameters" => suggested_post_parameters,
-          "reply_parameters" => reply_parameters,
-          "reply_markup" => reply_markup,
+          "reply_parameters"          => reply_parameters,
+          "reply_markup"              => reply_markup,
         }
 
         # Runtime detection: check if any parameters contain actual file data
@@ -580,14 +579,14 @@ module Telegram
         if has_files
           # Use multipart form data for file uploads
           boundary, form_body = build_multipart_form_with_files(params_hash)
-          
+
           # Make HTTP request with multipart form using enhanced client
           url = "#{@api_url}/bot#{@token}/sendPhoto"
           response = @http_client.post_multipart(url, {boundary, form_body})
         else
           # Use JSON request when no files are present
           params = build_request_hash_from_hash(params_hash)
-          
+
           # Make HTTP request using enhanced client
           url = "#{@api_url}/bot#{@token}/sendPhoto"
           response = @http_client.post(url,
@@ -600,7 +599,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Message.from_json(result_data.to_json)
@@ -615,25 +614,25 @@ module Telegram
       def send_audio(chat_id : Int32 | String, audio : Telegram::InputFile | File | IO | String, business_connection_id : String? = nil, message_thread_id : Int32? = nil, direct_messages_topic_id : Int32? = nil, caption : String? = nil, parse_mode : String? = nil, caption_entities : Array(MessageEntity)? = nil, duration : Int32? = nil, performer : String? = nil, title : String? = nil, thumbnail : Telegram::InputFile | File | IO | String? = nil, disable_notification : Bool? = nil, protect_content : Bool? = nil, allow_paid_broadcast : Bool? = nil, message_effect_id : String? = nil, suggested_post_parameters : SuggestedPostParameters? = nil, reply_parameters : ReplyParameters? = nil, reply_markup : InlineKeyboardMarkup | ReplyKeyboardMarkup | ReplyKeyboardRemove | ForceReply? = nil) : Message
         # Collect parameters for file detection
         params_hash = {
-          "business_connection_id" => business_connection_id,
-          "chat_id" => chat_id,
-          "message_thread_id" => message_thread_id,
-          "direct_messages_topic_id" => direct_messages_topic_id,
-          "audio" => audio,
-          "caption" => caption,
-          "parse_mode" => parse_mode,
-          "caption_entities" => caption_entities,
-          "duration" => duration,
-          "performer" => performer,
-          "title" => title,
-          "thumbnail" => thumbnail,
-          "disable_notification" => disable_notification,
-          "protect_content" => protect_content,
-          "allow_paid_broadcast" => allow_paid_broadcast,
-          "message_effect_id" => message_effect_id,
+          "business_connection_id"    => business_connection_id,
+          "chat_id"                   => chat_id,
+          "message_thread_id"         => message_thread_id,
+          "direct_messages_topic_id"  => direct_messages_topic_id,
+          "audio"                     => audio,
+          "caption"                   => caption,
+          "parse_mode"                => parse_mode,
+          "caption_entities"          => caption_entities,
+          "duration"                  => duration,
+          "performer"                 => performer,
+          "title"                     => title,
+          "thumbnail"                 => thumbnail,
+          "disable_notification"      => disable_notification,
+          "protect_content"           => protect_content,
+          "allow_paid_broadcast"      => allow_paid_broadcast,
+          "message_effect_id"         => message_effect_id,
           "suggested_post_parameters" => suggested_post_parameters,
-          "reply_parameters" => reply_parameters,
-          "reply_markup" => reply_markup,
+          "reply_parameters"          => reply_parameters,
+          "reply_markup"              => reply_markup,
         }
 
         # Runtime detection: check if any parameters contain actual file data
@@ -642,14 +641,14 @@ module Telegram
         if has_files
           # Use multipart form data for file uploads
           boundary, form_body = build_multipart_form_with_files(params_hash)
-          
+
           # Make HTTP request with multipart form using enhanced client
           url = "#{@api_url}/bot#{@token}/sendAudio"
           response = @http_client.post_multipart(url, {boundary, form_body})
         else
           # Use JSON request when no files are present
           params = build_request_hash_from_hash(params_hash)
-          
+
           # Make HTTP request using enhanced client
           url = "#{@api_url}/bot#{@token}/sendAudio"
           response = @http_client.post(url,
@@ -662,7 +661,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Message.from_json(result_data.to_json)
@@ -676,23 +675,23 @@ module Telegram
       def send_document(chat_id : Int32 | String, document : Telegram::InputFile | File | IO | String, business_connection_id : String? = nil, message_thread_id : Int32? = nil, direct_messages_topic_id : Int32? = nil, thumbnail : Telegram::InputFile | File | IO | String? = nil, caption : String? = nil, parse_mode : String? = nil, caption_entities : Array(MessageEntity)? = nil, disable_content_type_detection : Bool? = nil, disable_notification : Bool? = nil, protect_content : Bool? = nil, allow_paid_broadcast : Bool? = nil, message_effect_id : String? = nil, suggested_post_parameters : SuggestedPostParameters? = nil, reply_parameters : ReplyParameters? = nil, reply_markup : InlineKeyboardMarkup | ReplyKeyboardMarkup | ReplyKeyboardRemove | ForceReply? = nil) : Message
         # Collect parameters for file detection
         params_hash = {
-          "business_connection_id" => business_connection_id,
-          "chat_id" => chat_id,
-          "message_thread_id" => message_thread_id,
-          "direct_messages_topic_id" => direct_messages_topic_id,
-          "document" => document,
-          "thumbnail" => thumbnail,
-          "caption" => caption,
-          "parse_mode" => parse_mode,
-          "caption_entities" => caption_entities,
+          "business_connection_id"         => business_connection_id,
+          "chat_id"                        => chat_id,
+          "message_thread_id"              => message_thread_id,
+          "direct_messages_topic_id"       => direct_messages_topic_id,
+          "document"                       => document,
+          "thumbnail"                      => thumbnail,
+          "caption"                        => caption,
+          "parse_mode"                     => parse_mode,
+          "caption_entities"               => caption_entities,
           "disable_content_type_detection" => disable_content_type_detection,
-          "disable_notification" => disable_notification,
-          "protect_content" => protect_content,
-          "allow_paid_broadcast" => allow_paid_broadcast,
-          "message_effect_id" => message_effect_id,
-          "suggested_post_parameters" => suggested_post_parameters,
-          "reply_parameters" => reply_parameters,
-          "reply_markup" => reply_markup,
+          "disable_notification"           => disable_notification,
+          "protect_content"                => protect_content,
+          "allow_paid_broadcast"           => allow_paid_broadcast,
+          "message_effect_id"              => message_effect_id,
+          "suggested_post_parameters"      => suggested_post_parameters,
+          "reply_parameters"               => reply_parameters,
+          "reply_markup"                   => reply_markup,
         }
 
         # Runtime detection: check if any parameters contain actual file data
@@ -701,14 +700,14 @@ module Telegram
         if has_files
           # Use multipart form data for file uploads
           boundary, form_body = build_multipart_form_with_files(params_hash)
-          
+
           # Make HTTP request with multipart form using enhanced client
           url = "#{@api_url}/bot#{@token}/sendDocument"
           response = @http_client.post_multipart(url, {boundary, form_body})
         else
           # Use JSON request when no files are present
           params = build_request_hash_from_hash(params_hash)
-          
+
           # Make HTTP request using enhanced client
           url = "#{@api_url}/bot#{@token}/sendDocument"
           response = @http_client.post(url,
@@ -721,7 +720,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Message.from_json(result_data.to_json)
@@ -735,30 +734,30 @@ module Telegram
       def send_video(chat_id : Int32 | String, video : Telegram::InputFile | File | IO | String, business_connection_id : String? = nil, message_thread_id : Int32? = nil, direct_messages_topic_id : Int32? = nil, duration : Int32? = nil, width : Int32? = nil, height : Int32? = nil, thumbnail : Telegram::InputFile | File | IO | String? = nil, cover : Telegram::InputFile | File | IO | String? = nil, start_timestamp : Int32? = nil, caption : String? = nil, parse_mode : String? = nil, caption_entities : Array(MessageEntity)? = nil, show_caption_above_media : Bool? = nil, has_spoiler : Bool? = nil, supports_streaming : Bool? = nil, disable_notification : Bool? = nil, protect_content : Bool? = nil, allow_paid_broadcast : Bool? = nil, message_effect_id : String? = nil, suggested_post_parameters : SuggestedPostParameters? = nil, reply_parameters : ReplyParameters? = nil, reply_markup : InlineKeyboardMarkup | ReplyKeyboardMarkup | ReplyKeyboardRemove | ForceReply? = nil) : Message
         # Collect parameters for file detection
         params_hash = {
-          "business_connection_id" => business_connection_id,
-          "chat_id" => chat_id,
-          "message_thread_id" => message_thread_id,
-          "direct_messages_topic_id" => direct_messages_topic_id,
-          "video" => video,
-          "duration" => duration,
-          "width" => width,
-          "height" => height,
-          "thumbnail" => thumbnail,
-          "cover" => cover,
-          "start_timestamp" => start_timestamp,
-          "caption" => caption,
-          "parse_mode" => parse_mode,
-          "caption_entities" => caption_entities,
-          "show_caption_above_media" => show_caption_above_media,
-          "has_spoiler" => has_spoiler,
-          "supports_streaming" => supports_streaming,
-          "disable_notification" => disable_notification,
-          "protect_content" => protect_content,
-          "allow_paid_broadcast" => allow_paid_broadcast,
-          "message_effect_id" => message_effect_id,
+          "business_connection_id"    => business_connection_id,
+          "chat_id"                   => chat_id,
+          "message_thread_id"         => message_thread_id,
+          "direct_messages_topic_id"  => direct_messages_topic_id,
+          "video"                     => video,
+          "duration"                  => duration,
+          "width"                     => width,
+          "height"                    => height,
+          "thumbnail"                 => thumbnail,
+          "cover"                     => cover,
+          "start_timestamp"           => start_timestamp,
+          "caption"                   => caption,
+          "parse_mode"                => parse_mode,
+          "caption_entities"          => caption_entities,
+          "show_caption_above_media"  => show_caption_above_media,
+          "has_spoiler"               => has_spoiler,
+          "supports_streaming"        => supports_streaming,
+          "disable_notification"      => disable_notification,
+          "protect_content"           => protect_content,
+          "allow_paid_broadcast"      => allow_paid_broadcast,
+          "message_effect_id"         => message_effect_id,
           "suggested_post_parameters" => suggested_post_parameters,
-          "reply_parameters" => reply_parameters,
-          "reply_markup" => reply_markup,
+          "reply_parameters"          => reply_parameters,
+          "reply_markup"              => reply_markup,
         }
 
         # Runtime detection: check if any parameters contain actual file data
@@ -767,14 +766,14 @@ module Telegram
         if has_files
           # Use multipart form data for file uploads
           boundary, form_body = build_multipart_form_with_files(params_hash)
-          
+
           # Make HTTP request with multipart form using enhanced client
           url = "#{@api_url}/bot#{@token}/sendVideo"
           response = @http_client.post_multipart(url, {boundary, form_body})
         else
           # Use JSON request when no files are present
           params = build_request_hash_from_hash(params_hash)
-          
+
           # Make HTTP request using enhanced client
           url = "#{@api_url}/bot#{@token}/sendVideo"
           response = @http_client.post(url,
@@ -787,7 +786,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Message.from_json(result_data.to_json)
@@ -801,27 +800,27 @@ module Telegram
       def send_animation(chat_id : Int32 | String, animation : Telegram::InputFile | File | IO | String, business_connection_id : String? = nil, message_thread_id : Int32? = nil, direct_messages_topic_id : Int32? = nil, duration : Int32? = nil, width : Int32? = nil, height : Int32? = nil, thumbnail : Telegram::InputFile | File | IO | String? = nil, caption : String? = nil, parse_mode : String? = nil, caption_entities : Array(MessageEntity)? = nil, show_caption_above_media : Bool? = nil, has_spoiler : Bool? = nil, disable_notification : Bool? = nil, protect_content : Bool? = nil, allow_paid_broadcast : Bool? = nil, message_effect_id : String? = nil, suggested_post_parameters : SuggestedPostParameters? = nil, reply_parameters : ReplyParameters? = nil, reply_markup : InlineKeyboardMarkup | ReplyKeyboardMarkup | ReplyKeyboardRemove | ForceReply? = nil) : Message
         # Collect parameters for file detection
         params_hash = {
-          "business_connection_id" => business_connection_id,
-          "chat_id" => chat_id,
-          "message_thread_id" => message_thread_id,
-          "direct_messages_topic_id" => direct_messages_topic_id,
-          "animation" => animation,
-          "duration" => duration,
-          "width" => width,
-          "height" => height,
-          "thumbnail" => thumbnail,
-          "caption" => caption,
-          "parse_mode" => parse_mode,
-          "caption_entities" => caption_entities,
-          "show_caption_above_media" => show_caption_above_media,
-          "has_spoiler" => has_spoiler,
-          "disable_notification" => disable_notification,
-          "protect_content" => protect_content,
-          "allow_paid_broadcast" => allow_paid_broadcast,
-          "message_effect_id" => message_effect_id,
+          "business_connection_id"    => business_connection_id,
+          "chat_id"                   => chat_id,
+          "message_thread_id"         => message_thread_id,
+          "direct_messages_topic_id"  => direct_messages_topic_id,
+          "animation"                 => animation,
+          "duration"                  => duration,
+          "width"                     => width,
+          "height"                    => height,
+          "thumbnail"                 => thumbnail,
+          "caption"                   => caption,
+          "parse_mode"                => parse_mode,
+          "caption_entities"          => caption_entities,
+          "show_caption_above_media"  => show_caption_above_media,
+          "has_spoiler"               => has_spoiler,
+          "disable_notification"      => disable_notification,
+          "protect_content"           => protect_content,
+          "allow_paid_broadcast"      => allow_paid_broadcast,
+          "message_effect_id"         => message_effect_id,
           "suggested_post_parameters" => suggested_post_parameters,
-          "reply_parameters" => reply_parameters,
-          "reply_markup" => reply_markup,
+          "reply_parameters"          => reply_parameters,
+          "reply_markup"              => reply_markup,
         }
 
         # Runtime detection: check if any parameters contain actual file data
@@ -830,14 +829,14 @@ module Telegram
         if has_files
           # Use multipart form data for file uploads
           boundary, form_body = build_multipart_form_with_files(params_hash)
-          
+
           # Make HTTP request with multipart form using enhanced client
           url = "#{@api_url}/bot#{@token}/sendAnimation"
           response = @http_client.post_multipart(url, {boundary, form_body})
         else
           # Use JSON request when no files are present
           params = build_request_hash_from_hash(params_hash)
-          
+
           # Make HTTP request using enhanced client
           url = "#{@api_url}/bot#{@token}/sendAnimation"
           response = @http_client.post(url,
@@ -850,7 +849,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Message.from_json(result_data.to_json)
@@ -864,22 +863,22 @@ module Telegram
       def send_voice(chat_id : Int32 | String, voice : Telegram::InputFile | File | IO | String, business_connection_id : String? = nil, message_thread_id : Int32? = nil, direct_messages_topic_id : Int32? = nil, caption : String? = nil, parse_mode : String? = nil, caption_entities : Array(MessageEntity)? = nil, duration : Int32? = nil, disable_notification : Bool? = nil, protect_content : Bool? = nil, allow_paid_broadcast : Bool? = nil, message_effect_id : String? = nil, suggested_post_parameters : SuggestedPostParameters? = nil, reply_parameters : ReplyParameters? = nil, reply_markup : InlineKeyboardMarkup | ReplyKeyboardMarkup | ReplyKeyboardRemove | ForceReply? = nil) : Message
         # Collect parameters for file detection
         params_hash = {
-          "business_connection_id" => business_connection_id,
-          "chat_id" => chat_id,
-          "message_thread_id" => message_thread_id,
-          "direct_messages_topic_id" => direct_messages_topic_id,
-          "voice" => voice,
-          "caption" => caption,
-          "parse_mode" => parse_mode,
-          "caption_entities" => caption_entities,
-          "duration" => duration,
-          "disable_notification" => disable_notification,
-          "protect_content" => protect_content,
-          "allow_paid_broadcast" => allow_paid_broadcast,
-          "message_effect_id" => message_effect_id,
+          "business_connection_id"    => business_connection_id,
+          "chat_id"                   => chat_id,
+          "message_thread_id"         => message_thread_id,
+          "direct_messages_topic_id"  => direct_messages_topic_id,
+          "voice"                     => voice,
+          "caption"                   => caption,
+          "parse_mode"                => parse_mode,
+          "caption_entities"          => caption_entities,
+          "duration"                  => duration,
+          "disable_notification"      => disable_notification,
+          "protect_content"           => protect_content,
+          "allow_paid_broadcast"      => allow_paid_broadcast,
+          "message_effect_id"         => message_effect_id,
           "suggested_post_parameters" => suggested_post_parameters,
-          "reply_parameters" => reply_parameters,
-          "reply_markup" => reply_markup,
+          "reply_parameters"          => reply_parameters,
+          "reply_markup"              => reply_markup,
         }
 
         # Runtime detection: check if any parameters contain actual file data
@@ -888,14 +887,14 @@ module Telegram
         if has_files
           # Use multipart form data for file uploads
           boundary, form_body = build_multipart_form_with_files(params_hash)
-          
+
           # Make HTTP request with multipart form using enhanced client
           url = "#{@api_url}/bot#{@token}/sendVoice"
           response = @http_client.post_multipart(url, {boundary, form_body})
         else
           # Use JSON request when no files are present
           params = build_request_hash_from_hash(params_hash)
-          
+
           # Make HTTP request using enhanced client
           url = "#{@api_url}/bot#{@token}/sendVoice"
           response = @http_client.post(url,
@@ -908,7 +907,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Message.from_json(result_data.to_json)
@@ -922,21 +921,21 @@ module Telegram
       def send_video_note(chat_id : Int32 | String, video_note : Telegram::InputFile | File | IO | String, business_connection_id : String? = nil, message_thread_id : Int32? = nil, direct_messages_topic_id : Int32? = nil, duration : Int32? = nil, length : Int32? = nil, thumbnail : Telegram::InputFile | File | IO | String? = nil, disable_notification : Bool? = nil, protect_content : Bool? = nil, allow_paid_broadcast : Bool? = nil, message_effect_id : String? = nil, suggested_post_parameters : SuggestedPostParameters? = nil, reply_parameters : ReplyParameters? = nil, reply_markup : InlineKeyboardMarkup | ReplyKeyboardMarkup | ReplyKeyboardRemove | ForceReply? = nil) : Message
         # Collect parameters for file detection
         params_hash = {
-          "business_connection_id" => business_connection_id,
-          "chat_id" => chat_id,
-          "message_thread_id" => message_thread_id,
-          "direct_messages_topic_id" => direct_messages_topic_id,
-          "video_note" => video_note,
-          "duration" => duration,
-          "length" => length,
-          "thumbnail" => thumbnail,
-          "disable_notification" => disable_notification,
-          "protect_content" => protect_content,
-          "allow_paid_broadcast" => allow_paid_broadcast,
-          "message_effect_id" => message_effect_id,
+          "business_connection_id"    => business_connection_id,
+          "chat_id"                   => chat_id,
+          "message_thread_id"         => message_thread_id,
+          "direct_messages_topic_id"  => direct_messages_topic_id,
+          "video_note"                => video_note,
+          "duration"                  => duration,
+          "length"                    => length,
+          "thumbnail"                 => thumbnail,
+          "disable_notification"      => disable_notification,
+          "protect_content"           => protect_content,
+          "allow_paid_broadcast"      => allow_paid_broadcast,
+          "message_effect_id"         => message_effect_id,
           "suggested_post_parameters" => suggested_post_parameters,
-          "reply_parameters" => reply_parameters,
-          "reply_markup" => reply_markup,
+          "reply_parameters"          => reply_parameters,
+          "reply_markup"              => reply_markup,
         }
 
         # Runtime detection: check if any parameters contain actual file data
@@ -945,14 +944,14 @@ module Telegram
         if has_files
           # Use multipart form data for file uploads
           boundary, form_body = build_multipart_form_with_files(params_hash)
-          
+
           # Make HTTP request with multipart form using enhanced client
           url = "#{@api_url}/bot#{@token}/sendVideoNote"
           response = @http_client.post_multipart(url, {boundary, form_body})
         else
           # Use JSON request when no files are present
           params = build_request_hash_from_hash(params_hash)
-          
+
           # Make HTTP request using enhanced client
           url = "#{@api_url}/bot#{@token}/sendVideoNote"
           response = @http_client.post(url,
@@ -965,7 +964,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Message.from_json(result_data.to_json)
@@ -979,23 +978,23 @@ module Telegram
       def send_paid_media(chat_id : Int32 | String, star_count : Int32, media : Array(InputPaidMedia), business_connection_id : String? = nil, message_thread_id : Int32? = nil, direct_messages_topic_id : Int32? = nil, payload : String? = nil, caption : String? = nil, parse_mode : String? = nil, caption_entities : Array(MessageEntity)? = nil, show_caption_above_media : Bool? = nil, disable_notification : Bool? = nil, protect_content : Bool? = nil, allow_paid_broadcast : Bool? = nil, suggested_post_parameters : SuggestedPostParameters? = nil, reply_parameters : ReplyParameters? = nil, reply_markup : InlineKeyboardMarkup | ReplyKeyboardMarkup | ReplyKeyboardRemove | ForceReply? = nil) : Message
         # Collect parameters for file detection
         params_hash = {
-          "business_connection_id" => business_connection_id,
-          "chat_id" => chat_id,
-          "message_thread_id" => message_thread_id,
-          "direct_messages_topic_id" => direct_messages_topic_id,
-          "star_count" => star_count,
-          "media" => media,
-          "payload" => payload,
-          "caption" => caption,
-          "parse_mode" => parse_mode,
-          "caption_entities" => caption_entities,
-          "show_caption_above_media" => show_caption_above_media,
-          "disable_notification" => disable_notification,
-          "protect_content" => protect_content,
-          "allow_paid_broadcast" => allow_paid_broadcast,
+          "business_connection_id"    => business_connection_id,
+          "chat_id"                   => chat_id,
+          "message_thread_id"         => message_thread_id,
+          "direct_messages_topic_id"  => direct_messages_topic_id,
+          "star_count"                => star_count,
+          "media"                     => media,
+          "payload"                   => payload,
+          "caption"                   => caption,
+          "parse_mode"                => parse_mode,
+          "caption_entities"          => caption_entities,
+          "show_caption_above_media"  => show_caption_above_media,
+          "disable_notification"      => disable_notification,
+          "protect_content"           => protect_content,
+          "allow_paid_broadcast"      => allow_paid_broadcast,
           "suggested_post_parameters" => suggested_post_parameters,
-          "reply_parameters" => reply_parameters,
-          "reply_markup" => reply_markup,
+          "reply_parameters"          => reply_parameters,
+          "reply_markup"              => reply_markup,
         }
 
         # Build JSON request parameters (method never accepts files)
@@ -1030,7 +1029,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Message.from_json(result_data.to_json)
@@ -1044,16 +1043,16 @@ module Telegram
       def send_media_group(chat_id : Int32 | String, media : Array(InputMediaAudio) | Array(InputMediaDocument) | Array(InputMediaPhoto) | Array(InputMediaVideo), business_connection_id : String? = nil, message_thread_id : Int32? = nil, direct_messages_topic_id : Int32? = nil, disable_notification : Bool? = nil, protect_content : Bool? = nil, allow_paid_broadcast : Bool? = nil, message_effect_id : String? = nil, reply_parameters : ReplyParameters? = nil) : Array(Message)
         # Collect parameters for file detection
         params_hash = {
-          "business_connection_id" => business_connection_id,
-          "chat_id" => chat_id,
-          "message_thread_id" => message_thread_id,
+          "business_connection_id"   => business_connection_id,
+          "chat_id"                  => chat_id,
+          "message_thread_id"        => message_thread_id,
           "direct_messages_topic_id" => direct_messages_topic_id,
-          "media" => media,
-          "disable_notification" => disable_notification,
-          "protect_content" => protect_content,
-          "allow_paid_broadcast" => allow_paid_broadcast,
-          "message_effect_id" => message_effect_id,
-          "reply_parameters" => reply_parameters,
+          "media"                    => media,
+          "disable_notification"     => disable_notification,
+          "protect_content"          => protect_content,
+          "allow_paid_broadcast"     => allow_paid_broadcast,
+          "message_effect_id"        => message_effect_id,
+          "reply_parameters"         => reply_parameters,
         }
 
         # Runtime detection: check if any parameters contain actual file data
@@ -1062,14 +1061,14 @@ module Telegram
         if has_files
           # Use multipart form data for file uploads
           boundary, form_body = build_multipart_form_with_files(params_hash)
-          
+
           # Make HTTP request with multipart form using enhanced client
           url = "#{@api_url}/bot#{@token}/sendMediaGroup"
           response = @http_client.post_multipart(url, {boundary, form_body})
         else
           # Use JSON request when no files are present
           params = build_request_hash_from_hash(params_hash)
-          
+
           # Make HTTP request using enhanced client
           url = "#{@api_url}/bot#{@token}/sendMediaGroup"
           response = @http_client.post(url,
@@ -1082,7 +1081,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Array(Message).from_json(result_data.to_json)
@@ -1096,23 +1095,23 @@ module Telegram
       def send_location(chat_id : Int32 | String, latitude : Float64, longitude : Float64, business_connection_id : String? = nil, message_thread_id : Int32? = nil, direct_messages_topic_id : Int32? = nil, horizontal_accuracy : Float64? = nil, live_period : Int32? = nil, heading : Int32? = nil, proximity_alert_radius : Int32? = nil, disable_notification : Bool? = nil, protect_content : Bool? = nil, allow_paid_broadcast : Bool? = nil, message_effect_id : String? = nil, suggested_post_parameters : SuggestedPostParameters? = nil, reply_parameters : ReplyParameters? = nil, reply_markup : InlineKeyboardMarkup | ReplyKeyboardMarkup | ReplyKeyboardRemove | ForceReply? = nil) : Message
         # Collect parameters for file detection
         params_hash = {
-          "business_connection_id" => business_connection_id,
-          "chat_id" => chat_id,
-          "message_thread_id" => message_thread_id,
-          "direct_messages_topic_id" => direct_messages_topic_id,
-          "latitude" => latitude,
-          "longitude" => longitude,
-          "horizontal_accuracy" => horizontal_accuracy,
-          "live_period" => live_period,
-          "heading" => heading,
-          "proximity_alert_radius" => proximity_alert_radius,
-          "disable_notification" => disable_notification,
-          "protect_content" => protect_content,
-          "allow_paid_broadcast" => allow_paid_broadcast,
-          "message_effect_id" => message_effect_id,
+          "business_connection_id"    => business_connection_id,
+          "chat_id"                   => chat_id,
+          "message_thread_id"         => message_thread_id,
+          "direct_messages_topic_id"  => direct_messages_topic_id,
+          "latitude"                  => latitude,
+          "longitude"                 => longitude,
+          "horizontal_accuracy"       => horizontal_accuracy,
+          "live_period"               => live_period,
+          "heading"                   => heading,
+          "proximity_alert_radius"    => proximity_alert_radius,
+          "disable_notification"      => disable_notification,
+          "protect_content"           => protect_content,
+          "allow_paid_broadcast"      => allow_paid_broadcast,
+          "message_effect_id"         => message_effect_id,
           "suggested_post_parameters" => suggested_post_parameters,
-          "reply_parameters" => reply_parameters,
-          "reply_markup" => reply_markup,
+          "reply_parameters"          => reply_parameters,
+          "reply_markup"              => reply_markup,
         }
 
         # Build JSON request parameters (method never accepts files)
@@ -1147,7 +1146,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Message.from_json(result_data.to_json)
@@ -1161,25 +1160,25 @@ module Telegram
       def send_venue(chat_id : Int32 | String, latitude : Float64, longitude : Float64, title : String, address : String, business_connection_id : String? = nil, message_thread_id : Int32? = nil, direct_messages_topic_id : Int32? = nil, foursquare_id : String? = nil, foursquare_type : String? = nil, google_place_id : String? = nil, google_place_type : String? = nil, disable_notification : Bool? = nil, protect_content : Bool? = nil, allow_paid_broadcast : Bool? = nil, message_effect_id : String? = nil, suggested_post_parameters : SuggestedPostParameters? = nil, reply_parameters : ReplyParameters? = nil, reply_markup : InlineKeyboardMarkup | ReplyKeyboardMarkup | ReplyKeyboardRemove | ForceReply? = nil) : Message
         # Collect parameters for file detection
         params_hash = {
-          "business_connection_id" => business_connection_id,
-          "chat_id" => chat_id,
-          "message_thread_id" => message_thread_id,
-          "direct_messages_topic_id" => direct_messages_topic_id,
-          "latitude" => latitude,
-          "longitude" => longitude,
-          "title" => title,
-          "address" => address,
-          "foursquare_id" => foursquare_id,
-          "foursquare_type" => foursquare_type,
-          "google_place_id" => google_place_id,
-          "google_place_type" => google_place_type,
-          "disable_notification" => disable_notification,
-          "protect_content" => protect_content,
-          "allow_paid_broadcast" => allow_paid_broadcast,
-          "message_effect_id" => message_effect_id,
+          "business_connection_id"    => business_connection_id,
+          "chat_id"                   => chat_id,
+          "message_thread_id"         => message_thread_id,
+          "direct_messages_topic_id"  => direct_messages_topic_id,
+          "latitude"                  => latitude,
+          "longitude"                 => longitude,
+          "title"                     => title,
+          "address"                   => address,
+          "foursquare_id"             => foursquare_id,
+          "foursquare_type"           => foursquare_type,
+          "google_place_id"           => google_place_id,
+          "google_place_type"         => google_place_type,
+          "disable_notification"      => disable_notification,
+          "protect_content"           => protect_content,
+          "allow_paid_broadcast"      => allow_paid_broadcast,
+          "message_effect_id"         => message_effect_id,
           "suggested_post_parameters" => suggested_post_parameters,
-          "reply_parameters" => reply_parameters,
-          "reply_markup" => reply_markup,
+          "reply_parameters"          => reply_parameters,
+          "reply_markup"              => reply_markup,
         }
 
         # Build JSON request parameters (method never accepts files)
@@ -1216,7 +1215,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Message.from_json(result_data.to_json)
@@ -1230,21 +1229,21 @@ module Telegram
       def send_contact(chat_id : Int32 | String, phone_number : String, first_name : String, business_connection_id : String? = nil, message_thread_id : Int32? = nil, direct_messages_topic_id : Int32? = nil, last_name : String? = nil, vcard : String? = nil, disable_notification : Bool? = nil, protect_content : Bool? = nil, allow_paid_broadcast : Bool? = nil, message_effect_id : String? = nil, suggested_post_parameters : SuggestedPostParameters? = nil, reply_parameters : ReplyParameters? = nil, reply_markup : InlineKeyboardMarkup | ReplyKeyboardMarkup | ReplyKeyboardRemove | ForceReply? = nil) : Message
         # Collect parameters for file detection
         params_hash = {
-          "business_connection_id" => business_connection_id,
-          "chat_id" => chat_id,
-          "message_thread_id" => message_thread_id,
-          "direct_messages_topic_id" => direct_messages_topic_id,
-          "phone_number" => phone_number,
-          "first_name" => first_name,
-          "last_name" => last_name,
-          "vcard" => vcard,
-          "disable_notification" => disable_notification,
-          "protect_content" => protect_content,
-          "allow_paid_broadcast" => allow_paid_broadcast,
-          "message_effect_id" => message_effect_id,
+          "business_connection_id"    => business_connection_id,
+          "chat_id"                   => chat_id,
+          "message_thread_id"         => message_thread_id,
+          "direct_messages_topic_id"  => direct_messages_topic_id,
+          "phone_number"              => phone_number,
+          "first_name"                => first_name,
+          "last_name"                 => last_name,
+          "vcard"                     => vcard,
+          "disable_notification"      => disable_notification,
+          "protect_content"           => protect_content,
+          "allow_paid_broadcast"      => allow_paid_broadcast,
+          "message_effect_id"         => message_effect_id,
           "suggested_post_parameters" => suggested_post_parameters,
-          "reply_parameters" => reply_parameters,
-          "reply_markup" => reply_markup,
+          "reply_parameters"          => reply_parameters,
+          "reply_markup"              => reply_markup,
         }
 
         # Build JSON request parameters (method never accepts files)
@@ -1277,7 +1276,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Message.from_json(result_data.to_json)
@@ -1291,29 +1290,29 @@ module Telegram
       def send_poll(chat_id : Int32 | String, question : String, options : Array(InputPollOption), business_connection_id : String? = nil, message_thread_id : Int32? = nil, question_parse_mode : String? = nil, question_entities : Array(MessageEntity)? = nil, is_anonymous : Bool? = nil, type : String? = nil, allows_multiple_answers : Bool? = nil, correct_option_id : Int32? = nil, explanation : String? = nil, explanation_parse_mode : String? = nil, explanation_entities : Array(MessageEntity)? = nil, open_period : Int32? = nil, close_date : Int32? = nil, is_closed : Bool? = nil, disable_notification : Bool? = nil, protect_content : Bool? = nil, allow_paid_broadcast : Bool? = nil, message_effect_id : String? = nil, reply_parameters : ReplyParameters? = nil, reply_markup : InlineKeyboardMarkup | ReplyKeyboardMarkup | ReplyKeyboardRemove | ForceReply? = nil) : Message
         # Collect parameters for file detection
         params_hash = {
-          "business_connection_id" => business_connection_id,
-          "chat_id" => chat_id,
-          "message_thread_id" => message_thread_id,
-          "question" => question,
-          "question_parse_mode" => question_parse_mode,
-          "question_entities" => question_entities,
-          "options" => options,
-          "is_anonymous" => is_anonymous,
-          "type" => type,
+          "business_connection_id"  => business_connection_id,
+          "chat_id"                 => chat_id,
+          "message_thread_id"       => message_thread_id,
+          "question"                => question,
+          "question_parse_mode"     => question_parse_mode,
+          "question_entities"       => question_entities,
+          "options"                 => options,
+          "is_anonymous"            => is_anonymous,
+          "type"                    => type,
           "allows_multiple_answers" => allows_multiple_answers,
-          "correct_option_id" => correct_option_id,
-          "explanation" => explanation,
-          "explanation_parse_mode" => explanation_parse_mode,
-          "explanation_entities" => explanation_entities,
-          "open_period" => open_period,
-          "close_date" => close_date,
-          "is_closed" => is_closed,
-          "disable_notification" => disable_notification,
-          "protect_content" => protect_content,
-          "allow_paid_broadcast" => allow_paid_broadcast,
-          "message_effect_id" => message_effect_id,
-          "reply_parameters" => reply_parameters,
-          "reply_markup" => reply_markup,
+          "correct_option_id"       => correct_option_id,
+          "explanation"             => explanation,
+          "explanation_parse_mode"  => explanation_parse_mode,
+          "explanation_entities"    => explanation_entities,
+          "open_period"             => open_period,
+          "close_date"              => close_date,
+          "is_closed"               => is_closed,
+          "disable_notification"    => disable_notification,
+          "protect_content"         => protect_content,
+          "allow_paid_broadcast"    => allow_paid_broadcast,
+          "message_effect_id"       => message_effect_id,
+          "reply_parameters"        => reply_parameters,
+          "reply_markup"            => reply_markup,
         }
 
         # Build JSON request parameters (method never accepts files)
@@ -1354,7 +1353,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Message.from_json(result_data.to_json)
@@ -1369,13 +1368,13 @@ module Telegram
         # Collect parameters for file detection
         params_hash = {
           "business_connection_id" => business_connection_id,
-          "chat_id" => chat_id,
-          "checklist" => checklist,
-          "disable_notification" => disable_notification,
-          "protect_content" => protect_content,
-          "message_effect_id" => message_effect_id,
-          "reply_parameters" => reply_parameters,
-          "reply_markup" => reply_markup,
+          "chat_id"                => chat_id,
+          "checklist"              => checklist,
+          "disable_notification"   => disable_notification,
+          "protect_content"        => protect_content,
+          "message_effect_id"      => message_effect_id,
+          "reply_parameters"       => reply_parameters,
+          "reply_markup"           => reply_markup,
         }
 
         # Build JSON request parameters (method never accepts files)
@@ -1401,7 +1400,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Message.from_json(result_data.to_json)
@@ -1415,18 +1414,18 @@ module Telegram
       def send_dice(chat_id : Int32 | String, business_connection_id : String? = nil, message_thread_id : Int32? = nil, direct_messages_topic_id : Int32? = nil, emoji : String? = nil, disable_notification : Bool? = nil, protect_content : Bool? = nil, allow_paid_broadcast : Bool? = nil, message_effect_id : String? = nil, suggested_post_parameters : SuggestedPostParameters? = nil, reply_parameters : ReplyParameters? = nil, reply_markup : InlineKeyboardMarkup | ReplyKeyboardMarkup | ReplyKeyboardRemove | ForceReply? = nil) : Message
         # Collect parameters for file detection
         params_hash = {
-          "business_connection_id" => business_connection_id,
-          "chat_id" => chat_id,
-          "message_thread_id" => message_thread_id,
-          "direct_messages_topic_id" => direct_messages_topic_id,
-          "emoji" => emoji,
-          "disable_notification" => disable_notification,
-          "protect_content" => protect_content,
-          "allow_paid_broadcast" => allow_paid_broadcast,
-          "message_effect_id" => message_effect_id,
+          "business_connection_id"    => business_connection_id,
+          "chat_id"                   => chat_id,
+          "message_thread_id"         => message_thread_id,
+          "direct_messages_topic_id"  => direct_messages_topic_id,
+          "emoji"                     => emoji,
+          "disable_notification"      => disable_notification,
+          "protect_content"           => protect_content,
+          "allow_paid_broadcast"      => allow_paid_broadcast,
+          "message_effect_id"         => message_effect_id,
           "suggested_post_parameters" => suggested_post_parameters,
-          "reply_parameters" => reply_parameters,
-          "reply_markup" => reply_markup,
+          "reply_parameters"          => reply_parameters,
+          "reply_markup"              => reply_markup,
         }
 
         # Build JSON request parameters (method never accepts files)
@@ -1456,7 +1455,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Message.from_json(result_data.to_json)
@@ -1472,9 +1471,9 @@ module Telegram
         # Collect parameters for file detection
         params_hash = {
           "business_connection_id" => business_connection_id,
-          "chat_id" => chat_id,
-          "message_thread_id" => message_thread_id,
-          "action" => action,
+          "chat_id"                => chat_id,
+          "message_thread_id"      => message_thread_id,
+          "action"                 => action,
         }
 
         # Build JSON request parameters (method never accepts files)
@@ -1496,7 +1495,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Bool.from_json(result_data.to_json)
@@ -1510,10 +1509,10 @@ module Telegram
       def set_message_reaction(chat_id : Int32 | String, message_id : Int32, reaction : Array(ReactionType)? = nil, is_big : Bool? = nil) : Bool
         # Collect parameters for file detection
         params_hash = {
-          "chat_id" => chat_id,
+          "chat_id"    => chat_id,
           "message_id" => message_id,
-          "reaction" => reaction,
-          "is_big" => is_big,
+          "reaction"   => reaction,
+          "is_big"     => is_big,
         }
 
         # Build JSON request parameters (method never accepts files)
@@ -1535,7 +1534,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Bool.from_json(result_data.to_json)
@@ -1550,8 +1549,8 @@ module Telegram
         # Collect parameters for file detection
         params_hash = {
           "user_id" => user_id,
-          "offset" => offset,
-          "limit" => limit,
+          "offset"  => offset,
+          "limit"   => limit,
         }
 
         # Build JSON request parameters (method never accepts files)
@@ -1572,7 +1571,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         UserProfilePhotos.from_json(result_data.to_json)
@@ -1586,7 +1585,7 @@ module Telegram
       def set_user_emoji_status(user_id : Int32, emoji_status_custom_emoji_id : String? = nil, emoji_status_expiration_date : Int32? = nil) : Bool
         # Collect parameters for file detection
         params_hash = {
-          "user_id" => user_id,
+          "user_id"                      => user_id,
           "emoji_status_custom_emoji_id" => emoji_status_custom_emoji_id,
           "emoji_status_expiration_date" => emoji_status_expiration_date,
         }
@@ -1609,7 +1608,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Bool.from_json(result_data.to_json)
@@ -1643,7 +1642,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         TelegramFile.from_json(result_data.to_json)
@@ -1657,9 +1656,9 @@ module Telegram
       def ban_chat_member(chat_id : Int32 | String, user_id : Int32, until_date : Int32? = nil, revoke_messages : Bool? = nil) : Bool
         # Collect parameters for file detection
         params_hash = {
-          "chat_id" => chat_id,
-          "user_id" => user_id,
-          "until_date" => until_date,
+          "chat_id"         => chat_id,
+          "user_id"         => user_id,
+          "until_date"      => until_date,
           "revoke_messages" => revoke_messages,
         }
 
@@ -1682,7 +1681,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Bool.from_json(result_data.to_json)
@@ -1696,8 +1695,8 @@ module Telegram
       def unban_chat_member(chat_id : Int32 | String, user_id : Int32, only_if_banned : Bool? = nil) : Bool
         # Collect parameters for file detection
         params_hash = {
-          "chat_id" => chat_id,
-          "user_id" => user_id,
+          "chat_id"        => chat_id,
+          "user_id"        => user_id,
           "only_if_banned" => only_if_banned,
         }
 
@@ -1719,7 +1718,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Bool.from_json(result_data.to_json)
@@ -1733,11 +1732,11 @@ module Telegram
       def restrict_chat_member(chat_id : Int32 | String, user_id : Int32, permissions : ChatPermissions, use_independent_chat_permissions : Bool? = nil, until_date : Int32? = nil) : Bool
         # Collect parameters for file detection
         params_hash = {
-          "chat_id" => chat_id,
-          "user_id" => user_id,
-          "permissions" => permissions,
+          "chat_id"                          => chat_id,
+          "user_id"                          => user_id,
+          "permissions"                      => permissions,
           "use_independent_chat_permissions" => use_independent_chat_permissions,
-          "until_date" => until_date,
+          "until_date"                       => until_date,
         }
 
         # Build JSON request parameters (method never accepts files)
@@ -1760,7 +1759,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Bool.from_json(result_data.to_json)
@@ -1774,23 +1773,23 @@ module Telegram
       def promote_chat_member(chat_id : Int32 | String, user_id : Int32, is_anonymous : Bool? = nil, can_manage_chat : Bool? = nil, can_delete_messages : Bool? = nil, can_manage_video_chats : Bool? = nil, can_restrict_members : Bool? = nil, can_promote_members : Bool? = nil, can_change_info : Bool? = nil, can_invite_users : Bool? = nil, can_post_stories : Bool? = nil, can_edit_stories : Bool? = nil, can_delete_stories : Bool? = nil, can_post_messages : Bool? = nil, can_edit_messages : Bool? = nil, can_pin_messages : Bool? = nil, can_manage_topics : Bool? = nil, can_manage_direct_messages : Bool? = nil) : Bool
         # Collect parameters for file detection
         params_hash = {
-          "chat_id" => chat_id,
-          "user_id" => user_id,
-          "is_anonymous" => is_anonymous,
-          "can_manage_chat" => can_manage_chat,
-          "can_delete_messages" => can_delete_messages,
-          "can_manage_video_chats" => can_manage_video_chats,
-          "can_restrict_members" => can_restrict_members,
-          "can_promote_members" => can_promote_members,
-          "can_change_info" => can_change_info,
-          "can_invite_users" => can_invite_users,
-          "can_post_stories" => can_post_stories,
-          "can_edit_stories" => can_edit_stories,
-          "can_delete_stories" => can_delete_stories,
-          "can_post_messages" => can_post_messages,
-          "can_edit_messages" => can_edit_messages,
-          "can_pin_messages" => can_pin_messages,
-          "can_manage_topics" => can_manage_topics,
+          "chat_id"                    => chat_id,
+          "user_id"                    => user_id,
+          "is_anonymous"               => is_anonymous,
+          "can_manage_chat"            => can_manage_chat,
+          "can_delete_messages"        => can_delete_messages,
+          "can_manage_video_chats"     => can_manage_video_chats,
+          "can_restrict_members"       => can_restrict_members,
+          "can_promote_members"        => can_promote_members,
+          "can_change_info"            => can_change_info,
+          "can_invite_users"           => can_invite_users,
+          "can_post_stories"           => can_post_stories,
+          "can_edit_stories"           => can_edit_stories,
+          "can_delete_stories"         => can_delete_stories,
+          "can_post_messages"          => can_post_messages,
+          "can_edit_messages"          => can_edit_messages,
+          "can_pin_messages"           => can_pin_messages,
+          "can_manage_topics"          => can_manage_topics,
           "can_manage_direct_messages" => can_manage_direct_messages,
         }
 
@@ -1827,7 +1826,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Bool.from_json(result_data.to_json)
@@ -1841,8 +1840,8 @@ module Telegram
       def set_chat_administrator_custom_title(chat_id : Int32 | String, user_id : Int32, custom_title : String) : Bool
         # Collect parameters for file detection
         params_hash = {
-          "chat_id" => chat_id,
-          "user_id" => user_id,
+          "chat_id"      => chat_id,
+          "user_id"      => user_id,
           "custom_title" => custom_title,
         }
 
@@ -1864,7 +1863,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Bool.from_json(result_data.to_json)
@@ -1878,7 +1877,7 @@ module Telegram
       def ban_chat_sender_chat(chat_id : Int32 | String, sender_chat_id : Int32) : Bool
         # Collect parameters for file detection
         params_hash = {
-          "chat_id" => chat_id,
+          "chat_id"        => chat_id,
           "sender_chat_id" => sender_chat_id,
         }
 
@@ -1899,7 +1898,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Bool.from_json(result_data.to_json)
@@ -1913,7 +1912,7 @@ module Telegram
       def unban_chat_sender_chat(chat_id : Int32 | String, sender_chat_id : Int32) : Bool
         # Collect parameters for file detection
         params_hash = {
-          "chat_id" => chat_id,
+          "chat_id"        => chat_id,
           "sender_chat_id" => sender_chat_id,
         }
 
@@ -1934,7 +1933,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Bool.from_json(result_data.to_json)
@@ -1948,8 +1947,8 @@ module Telegram
       def set_chat_permissions(chat_id : Int32 | String, permissions : ChatPermissions, use_independent_chat_permissions : Bool? = nil) : Bool
         # Collect parameters for file detection
         params_hash = {
-          "chat_id" => chat_id,
-          "permissions" => permissions,
+          "chat_id"                          => chat_id,
+          "permissions"                      => permissions,
           "use_independent_chat_permissions" => use_independent_chat_permissions,
         }
 
@@ -1971,7 +1970,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Bool.from_json(result_data.to_json)
@@ -2004,7 +2003,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         String.from_json(result_data.to_json)
@@ -2018,10 +2017,10 @@ module Telegram
       def create_chat_invite_link(chat_id : Int32 | String, name : String? = nil, expire_date : Int32? = nil, member_limit : Int32? = nil, creates_join_request : Bool? = nil) : ChatInviteLink
         # Collect parameters for file detection
         params_hash = {
-          "chat_id" => chat_id,
-          "name" => name,
-          "expire_date" => expire_date,
-          "member_limit" => member_limit,
+          "chat_id"              => chat_id,
+          "name"                 => name,
+          "expire_date"          => expire_date,
+          "member_limit"         => member_limit,
           "creates_join_request" => creates_join_request,
         }
 
@@ -2045,7 +2044,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         ChatInviteLink.from_json(result_data.to_json)
@@ -2059,11 +2058,11 @@ module Telegram
       def edit_chat_invite_link(chat_id : Int32 | String, invite_link : String, name : String? = nil, expire_date : Int32? = nil, member_limit : Int32? = nil, creates_join_request : Bool? = nil) : ChatInviteLink
         # Collect parameters for file detection
         params_hash = {
-          "chat_id" => chat_id,
-          "invite_link" => invite_link,
-          "name" => name,
-          "expire_date" => expire_date,
-          "member_limit" => member_limit,
+          "chat_id"              => chat_id,
+          "invite_link"          => invite_link,
+          "name"                 => name,
+          "expire_date"          => expire_date,
+          "member_limit"         => member_limit,
           "creates_join_request" => creates_join_request,
         }
 
@@ -2088,7 +2087,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         ChatInviteLink.from_json(result_data.to_json)
@@ -2102,10 +2101,10 @@ module Telegram
       def create_chat_subscription_invite_link(chat_id : Int32 | String, subscription_period : Int32, subscription_price : Int32, name : String? = nil) : ChatInviteLink
         # Collect parameters for file detection
         params_hash = {
-          "chat_id" => chat_id,
-          "name" => name,
+          "chat_id"             => chat_id,
+          "name"                => name,
           "subscription_period" => subscription_period,
-          "subscription_price" => subscription_price,
+          "subscription_price"  => subscription_price,
         }
 
         # Build JSON request parameters (method never accepts files)
@@ -2127,7 +2126,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         ChatInviteLink.from_json(result_data.to_json)
@@ -2141,9 +2140,9 @@ module Telegram
       def edit_chat_subscription_invite_link(chat_id : Int32 | String, invite_link : String, name : String? = nil) : ChatInviteLink
         # Collect parameters for file detection
         params_hash = {
-          "chat_id" => chat_id,
+          "chat_id"     => chat_id,
           "invite_link" => invite_link,
-          "name" => name,
+          "name"        => name,
         }
 
         # Build JSON request parameters (method never accepts files)
@@ -2164,7 +2163,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         ChatInviteLink.from_json(result_data.to_json)
@@ -2178,7 +2177,7 @@ module Telegram
       def revoke_chat_invite_link(chat_id : Int32 | String, invite_link : String) : ChatInviteLink
         # Collect parameters for file detection
         params_hash = {
-          "chat_id" => chat_id,
+          "chat_id"     => chat_id,
           "invite_link" => invite_link,
         }
 
@@ -2199,7 +2198,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         ChatInviteLink.from_json(result_data.to_json)
@@ -2234,7 +2233,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Bool.from_json(result_data.to_json)
@@ -2269,7 +2268,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Bool.from_json(result_data.to_json)
@@ -2284,7 +2283,7 @@ module Telegram
         # Collect parameters for file detection
         params_hash = {
           "chat_id" => chat_id,
-          "photo" => photo,
+          "photo"   => photo,
         }
 
         # Runtime detection: check if any parameters contain actual file data
@@ -2293,14 +2292,14 @@ module Telegram
         if has_files
           # Use multipart form data for file uploads
           boundary, form_body = build_multipart_form_with_files(params_hash)
-          
+
           # Make HTTP request with multipart form using enhanced client
           url = "#{@api_url}/bot#{@token}/setChatPhoto"
           response = @http_client.post_multipart(url, {boundary, form_body})
         else
           # Use JSON request when no files are present
           params = build_request_hash_from_hash(params_hash)
-          
+
           # Make HTTP request using enhanced client
           url = "#{@api_url}/bot#{@token}/setChatPhoto"
           response = @http_client.post(url,
@@ -2313,7 +2312,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Bool.from_json(result_data.to_json)
@@ -2346,7 +2345,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Bool.from_json(result_data.to_json)
@@ -2361,7 +2360,7 @@ module Telegram
         # Collect parameters for file detection
         params_hash = {
           "chat_id" => chat_id,
-          "title" => title,
+          "title"   => title,
         }
 
         # Build JSON request parameters (method never accepts files)
@@ -2381,7 +2380,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Bool.from_json(result_data.to_json)
@@ -2395,7 +2394,7 @@ module Telegram
       def set_chat_description(chat_id : Int32 | String, description : String? = nil) : Bool
         # Collect parameters for file detection
         params_hash = {
-          "chat_id" => chat_id,
+          "chat_id"     => chat_id,
           "description" => description,
         }
 
@@ -2416,7 +2415,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Bool.from_json(result_data.to_json)
@@ -2431,9 +2430,9 @@ module Telegram
         # Collect parameters for file detection
         params_hash = {
           "business_connection_id" => business_connection_id,
-          "chat_id" => chat_id,
-          "message_id" => message_id,
-          "disable_notification" => disable_notification,
+          "chat_id"                => chat_id,
+          "message_id"             => message_id,
+          "disable_notification"   => disable_notification,
         }
 
         # Build JSON request parameters (method never accepts files)
@@ -2455,7 +2454,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Bool.from_json(result_data.to_json)
@@ -2470,8 +2469,8 @@ module Telegram
         # Collect parameters for file detection
         params_hash = {
           "business_connection_id" => business_connection_id,
-          "chat_id" => chat_id,
-          "message_id" => message_id,
+          "chat_id"                => chat_id,
+          "message_id"             => message_id,
         }
 
         # Build JSON request parameters (method never accepts files)
@@ -2492,7 +2491,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Bool.from_json(result_data.to_json)
@@ -2525,7 +2524,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Bool.from_json(result_data.to_json)
@@ -2558,7 +2557,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Bool.from_json(result_data.to_json)
@@ -2591,7 +2590,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         ChatFullInfo.from_json(result_data.to_json)
@@ -2624,7 +2623,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Array(ChatMember).from_json(result_data.to_json)
@@ -2657,7 +2656,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Int32.from_json(result_data.to_json)
@@ -2692,7 +2691,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         ChatMember.from_json(result_data.to_json)
@@ -2706,7 +2705,7 @@ module Telegram
       def set_chat_sticker_set(chat_id : Int32 | String, sticker_set_name : String) : Bool
         # Collect parameters for file detection
         params_hash = {
-          "chat_id" => chat_id,
+          "chat_id"          => chat_id,
           "sticker_set_name" => sticker_set_name,
         }
 
@@ -2727,7 +2726,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Bool.from_json(result_data.to_json)
@@ -2760,7 +2759,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Bool.from_json(result_data.to_json)
@@ -2771,9 +2770,9 @@ module Telegram
       #
       # Returns: Array(Sticker)
       # See: https://core.telegram.org/bots/api#getforumtopiciconstickers
-      def get_forum_topic_icon_stickers() : Array(Sticker)
+      def get_forum_topic_icon_stickers : Array(Sticker)
         # Build JSON request parameters (method never accepts files)
-        params = build_request_hash(        )
+        params = build_request_hash()
 
         # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/getForumTopicIconStickers"
@@ -2786,7 +2785,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Array(Sticker).from_json(result_data.to_json)
@@ -2800,9 +2799,9 @@ module Telegram
       def create_forum_topic(chat_id : Int32 | String, name : String, icon_color : Int32? = nil, icon_custom_emoji_id : String? = nil) : ForumTopic
         # Collect parameters for file detection
         params_hash = {
-          "chat_id" => chat_id,
-          "name" => name,
-          "icon_color" => icon_color,
+          "chat_id"              => chat_id,
+          "name"                 => name,
+          "icon_color"           => icon_color,
           "icon_custom_emoji_id" => icon_custom_emoji_id,
         }
 
@@ -2825,7 +2824,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         ForumTopic.from_json(result_data.to_json)
@@ -2839,9 +2838,9 @@ module Telegram
       def edit_forum_topic(chat_id : Int32 | String, message_thread_id : Int32, name : String? = nil, icon_custom_emoji_id : String? = nil) : Bool
         # Collect parameters for file detection
         params_hash = {
-          "chat_id" => chat_id,
-          "message_thread_id" => message_thread_id,
-          "name" => name,
+          "chat_id"              => chat_id,
+          "message_thread_id"    => message_thread_id,
+          "name"                 => name,
           "icon_custom_emoji_id" => icon_custom_emoji_id,
         }
 
@@ -2864,7 +2863,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Bool.from_json(result_data.to_json)
@@ -2878,7 +2877,7 @@ module Telegram
       def close_forum_topic(chat_id : Int32 | String, message_thread_id : Int32) : Bool
         # Collect parameters for file detection
         params_hash = {
-          "chat_id" => chat_id,
+          "chat_id"           => chat_id,
           "message_thread_id" => message_thread_id,
         }
 
@@ -2899,7 +2898,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Bool.from_json(result_data.to_json)
@@ -2913,7 +2912,7 @@ module Telegram
       def reopen_forum_topic(chat_id : Int32 | String, message_thread_id : Int32) : Bool
         # Collect parameters for file detection
         params_hash = {
-          "chat_id" => chat_id,
+          "chat_id"           => chat_id,
           "message_thread_id" => message_thread_id,
         }
 
@@ -2934,7 +2933,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Bool.from_json(result_data.to_json)
@@ -2948,7 +2947,7 @@ module Telegram
       def delete_forum_topic(chat_id : Int32 | String, message_thread_id : Int32) : Bool
         # Collect parameters for file detection
         params_hash = {
-          "chat_id" => chat_id,
+          "chat_id"           => chat_id,
           "message_thread_id" => message_thread_id,
         }
 
@@ -2969,7 +2968,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Bool.from_json(result_data.to_json)
@@ -2983,7 +2982,7 @@ module Telegram
       def unpin_all_forum_topic_messages(chat_id : Int32 | String, message_thread_id : Int32) : Bool
         # Collect parameters for file detection
         params_hash = {
-          "chat_id" => chat_id,
+          "chat_id"           => chat_id,
           "message_thread_id" => message_thread_id,
         }
 
@@ -3004,7 +3003,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Bool.from_json(result_data.to_json)
@@ -3019,7 +3018,7 @@ module Telegram
         # Collect parameters for file detection
         params_hash = {
           "chat_id" => chat_id,
-          "name" => name,
+          "name"    => name,
         }
 
         # Build JSON request parameters (method never accepts files)
@@ -3039,7 +3038,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Bool.from_json(result_data.to_json)
@@ -3072,7 +3071,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Bool.from_json(result_data.to_json)
@@ -3105,7 +3104,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Bool.from_json(result_data.to_json)
@@ -3138,7 +3137,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Bool.from_json(result_data.to_json)
@@ -3171,7 +3170,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Bool.from_json(result_data.to_json)
@@ -3204,7 +3203,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Bool.from_json(result_data.to_json)
@@ -3219,10 +3218,10 @@ module Telegram
         # Collect parameters for file detection
         params_hash = {
           "callback_query_id" => callback_query_id,
-          "text" => text,
-          "show_alert" => show_alert,
-          "url" => url,
-          "cache_time" => cache_time,
+          "text"              => text,
+          "show_alert"        => show_alert,
+          "url"               => url,
+          "cache_time"        => cache_time,
         }
 
         # Build JSON request parameters (method never accepts files)
@@ -3245,7 +3244,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Bool.from_json(result_data.to_json)
@@ -3280,7 +3279,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         UserChatBoosts.from_json(result_data.to_json)
@@ -3313,7 +3312,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         BusinessConnection.from_json(result_data.to_json)
@@ -3327,8 +3326,8 @@ module Telegram
       def set_my_commands(commands : Array(BotCommand), scope : BotCommandScope? = nil, language_code : String? = nil) : Bool
         # Collect parameters for file detection
         params_hash = {
-          "commands" => commands,
-          "scope" => scope,
+          "commands"      => commands,
+          "scope"         => scope,
           "language_code" => language_code,
         }
 
@@ -3350,7 +3349,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Bool.from_json(result_data.to_json)
@@ -3364,7 +3363,7 @@ module Telegram
       def delete_my_commands(scope : BotCommandScope? = nil, language_code : String? = nil) : Bool
         # Collect parameters for file detection
         params_hash = {
-          "scope" => scope,
+          "scope"         => scope,
           "language_code" => language_code,
         }
 
@@ -3385,7 +3384,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Bool.from_json(result_data.to_json)
@@ -3399,7 +3398,7 @@ module Telegram
       def get_my_commands(scope : BotCommandScope? = nil, language_code : String? = nil) : Array(BotCommand)
         # Collect parameters for file detection
         params_hash = {
-          "scope" => scope,
+          "scope"         => scope,
           "language_code" => language_code,
         }
 
@@ -3420,7 +3419,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Array(BotCommand).from_json(result_data.to_json)
@@ -3434,7 +3433,7 @@ module Telegram
       def set_my_name(name : String? = nil, language_code : String? = nil) : Bool
         # Collect parameters for file detection
         params_hash = {
-          "name" => name,
+          "name"          => name,
           "language_code" => language_code,
         }
 
@@ -3455,7 +3454,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Bool.from_json(result_data.to_json)
@@ -3488,7 +3487,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         BotName.from_json(result_data.to_json)
@@ -3502,7 +3501,7 @@ module Telegram
       def set_my_description(description : String? = nil, language_code : String? = nil) : Bool
         # Collect parameters for file detection
         params_hash = {
-          "description" => description,
+          "description"   => description,
           "language_code" => language_code,
         }
 
@@ -3523,7 +3522,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Bool.from_json(result_data.to_json)
@@ -3556,7 +3555,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         BotDescription.from_json(result_data.to_json)
@@ -3571,7 +3570,7 @@ module Telegram
         # Collect parameters for file detection
         params_hash = {
           "short_description" => short_description,
-          "language_code" => language_code,
+          "language_code"     => language_code,
         }
 
         # Build JSON request parameters (method never accepts files)
@@ -3591,7 +3590,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Bool.from_json(result_data.to_json)
@@ -3624,7 +3623,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         BotShortDescription.from_json(result_data.to_json)
@@ -3638,7 +3637,7 @@ module Telegram
       def set_chat_menu_button(chat_id : Int32? = nil, menu_button : MenuButton? = nil) : Bool
         # Collect parameters for file detection
         params_hash = {
-          "chat_id" => chat_id,
+          "chat_id"     => chat_id,
           "menu_button" => menu_button,
         }
 
@@ -3659,7 +3658,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Bool.from_json(result_data.to_json)
@@ -3692,7 +3691,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         MenuButton.from_json(result_data.to_json)
@@ -3706,7 +3705,7 @@ module Telegram
       def set_my_default_administrator_rights(rights : ChatAdministratorRights? = nil, for_channels : Bool? = nil) : Bool
         # Collect parameters for file detection
         params_hash = {
-          "rights" => rights,
+          "rights"       => rights,
           "for_channels" => for_channels,
         }
 
@@ -3727,7 +3726,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Bool.from_json(result_data.to_json)
@@ -3760,7 +3759,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         ChatAdministratorRights.from_json(result_data.to_json)
@@ -3771,9 +3770,9 @@ module Telegram
       #
       # Returns: Gifts
       # See: https://core.telegram.org/bots/api#getavailablegifts
-      def get_available_gifts() : Gifts
+      def get_available_gifts : Gifts
         # Build JSON request parameters (method never accepts files)
-        params = build_request_hash(        )
+        params = build_request_hash()
 
         # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/getAvailableGifts"
@@ -3786,7 +3785,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Gifts.from_json(result_data.to_json)
@@ -3800,13 +3799,13 @@ module Telegram
       def send_gift(gift_id : String, user_id : Int32? = nil, chat_id : Int32 | String? = nil, pay_for_upgrade : Bool? = nil, text : String? = nil, text_parse_mode : String? = nil, text_entities : Array(MessageEntity)? = nil) : Bool
         # Collect parameters for file detection
         params_hash = {
-          "user_id" => user_id,
-          "chat_id" => chat_id,
-          "gift_id" => gift_id,
+          "user_id"         => user_id,
+          "chat_id"         => chat_id,
+          "gift_id"         => gift_id,
           "pay_for_upgrade" => pay_for_upgrade,
-          "text" => text,
+          "text"            => text,
           "text_parse_mode" => text_parse_mode,
-          "text_entities" => text_entities,
+          "text_entities"   => text_entities,
         }
 
         # Build JSON request parameters (method never accepts files)
@@ -3831,7 +3830,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Bool.from_json(result_data.to_json)
@@ -3845,12 +3844,12 @@ module Telegram
       def gift_premium_subscription(user_id : Int32, month_count : Int32, star_count : Int32, text : String? = nil, text_parse_mode : String? = nil, text_entities : Array(MessageEntity)? = nil) : Bool
         # Collect parameters for file detection
         params_hash = {
-          "user_id" => user_id,
-          "month_count" => month_count,
-          "star_count" => star_count,
-          "text" => text,
+          "user_id"         => user_id,
+          "month_count"     => month_count,
+          "star_count"      => star_count,
+          "text"            => text,
           "text_parse_mode" => text_parse_mode,
-          "text_entities" => text_entities,
+          "text_entities"   => text_entities,
         }
 
         # Build JSON request parameters (method never accepts files)
@@ -3874,7 +3873,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Bool.from_json(result_data.to_json)
@@ -3888,7 +3887,7 @@ module Telegram
       def verify_user(user_id : Int32, custom_description : String? = nil) : Bool
         # Collect parameters for file detection
         params_hash = {
-          "user_id" => user_id,
+          "user_id"            => user_id,
           "custom_description" => custom_description,
         }
 
@@ -3909,7 +3908,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Bool.from_json(result_data.to_json)
@@ -3923,7 +3922,7 @@ module Telegram
       def verify_chat(chat_id : Int32 | String, custom_description : String? = nil) : Bool
         # Collect parameters for file detection
         params_hash = {
-          "chat_id" => chat_id,
+          "chat_id"            => chat_id,
           "custom_description" => custom_description,
         }
 
@@ -3944,7 +3943,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Bool.from_json(result_data.to_json)
@@ -3977,7 +3976,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Bool.from_json(result_data.to_json)
@@ -4010,7 +4009,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Bool.from_json(result_data.to_json)
@@ -4025,8 +4024,8 @@ module Telegram
         # Collect parameters for file detection
         params_hash = {
           "business_connection_id" => business_connection_id,
-          "chat_id" => chat_id,
-          "message_id" => message_id,
+          "chat_id"                => chat_id,
+          "message_id"             => message_id,
         }
 
         # Build JSON request parameters (method never accepts files)
@@ -4047,7 +4046,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Bool.from_json(result_data.to_json)
@@ -4062,7 +4061,7 @@ module Telegram
         # Collect parameters for file detection
         params_hash = {
           "business_connection_id" => business_connection_id,
-          "message_ids" => message_ids,
+          "message_ids"            => message_ids,
         }
 
         # Build JSON request parameters (method never accepts files)
@@ -4082,7 +4081,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Bool.from_json(result_data.to_json)
@@ -4097,8 +4096,8 @@ module Telegram
         # Collect parameters for file detection
         params_hash = {
           "business_connection_id" => business_connection_id,
-          "first_name" => first_name,
-          "last_name" => last_name,
+          "first_name"             => first_name,
+          "last_name"              => last_name,
         }
 
         # Build JSON request parameters (method never accepts files)
@@ -4119,7 +4118,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Bool.from_json(result_data.to_json)
@@ -4134,7 +4133,7 @@ module Telegram
         # Collect parameters for file detection
         params_hash = {
           "business_connection_id" => business_connection_id,
-          "username" => username,
+          "username"               => username,
         }
 
         # Build JSON request parameters (method never accepts files)
@@ -4154,7 +4153,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Bool.from_json(result_data.to_json)
@@ -4169,7 +4168,7 @@ module Telegram
         # Collect parameters for file detection
         params_hash = {
           "business_connection_id" => business_connection_id,
-          "bio" => bio,
+          "bio"                    => bio,
         }
 
         # Build JSON request parameters (method never accepts files)
@@ -4189,7 +4188,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Bool.from_json(result_data.to_json)
@@ -4204,8 +4203,8 @@ module Telegram
         # Collect parameters for file detection
         params_hash = {
           "business_connection_id" => business_connection_id,
-          "photo" => photo,
-          "is_public" => is_public,
+          "photo"                  => photo,
+          "is_public"              => is_public,
         }
 
         # Build JSON request parameters (method never accepts files)
@@ -4226,7 +4225,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Bool.from_json(result_data.to_json)
@@ -4241,7 +4240,7 @@ module Telegram
         # Collect parameters for file detection
         params_hash = {
           "business_connection_id" => business_connection_id,
-          "is_public" => is_public,
+          "is_public"              => is_public,
         }
 
         # Build JSON request parameters (method never accepts files)
@@ -4261,7 +4260,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Bool.from_json(result_data.to_json)
@@ -4276,8 +4275,8 @@ module Telegram
         # Collect parameters for file detection
         params_hash = {
           "business_connection_id" => business_connection_id,
-          "show_gift_button" => show_gift_button,
-          "accepted_gift_types" => accepted_gift_types,
+          "show_gift_button"       => show_gift_button,
+          "accepted_gift_types"    => accepted_gift_types,
         }
 
         # Build JSON request parameters (method never accepts files)
@@ -4298,7 +4297,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Bool.from_json(result_data.to_json)
@@ -4331,7 +4330,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         StarAmount.from_json(result_data.to_json)
@@ -4346,7 +4345,7 @@ module Telegram
         # Collect parameters for file detection
         params_hash = {
           "business_connection_id" => business_connection_id,
-          "star_count" => star_count,
+          "star_count"             => star_count,
         }
 
         # Build JSON request parameters (method never accepts files)
@@ -4366,7 +4365,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Bool.from_json(result_data.to_json)
@@ -4381,14 +4380,14 @@ module Telegram
         # Collect parameters for file detection
         params_hash = {
           "business_connection_id" => business_connection_id,
-          "exclude_unsaved" => exclude_unsaved,
-          "exclude_saved" => exclude_saved,
-          "exclude_unlimited" => exclude_unlimited,
-          "exclude_limited" => exclude_limited,
-          "exclude_unique" => exclude_unique,
-          "sort_by_price" => sort_by_price,
-          "offset" => offset,
-          "limit" => limit,
+          "exclude_unsaved"        => exclude_unsaved,
+          "exclude_saved"          => exclude_saved,
+          "exclude_unlimited"      => exclude_unlimited,
+          "exclude_limited"        => exclude_limited,
+          "exclude_unique"         => exclude_unique,
+          "sort_by_price"          => sort_by_price,
+          "offset"                 => offset,
+          "limit"                  => limit,
         }
 
         # Build JSON request parameters (method never accepts files)
@@ -4415,7 +4414,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         OwnedGifts.from_json(result_data.to_json)
@@ -4430,7 +4429,7 @@ module Telegram
         # Collect parameters for file detection
         params_hash = {
           "business_connection_id" => business_connection_id,
-          "owned_gift_id" => owned_gift_id,
+          "owned_gift_id"          => owned_gift_id,
         }
 
         # Build JSON request parameters (method never accepts files)
@@ -4450,7 +4449,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Bool.from_json(result_data.to_json)
@@ -4465,9 +4464,9 @@ module Telegram
         # Collect parameters for file detection
         params_hash = {
           "business_connection_id" => business_connection_id,
-          "owned_gift_id" => owned_gift_id,
-          "keep_original_details" => keep_original_details,
-          "star_count" => star_count,
+          "owned_gift_id"          => owned_gift_id,
+          "keep_original_details"  => keep_original_details,
+          "star_count"             => star_count,
         }
 
         # Build JSON request parameters (method never accepts files)
@@ -4489,7 +4488,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Bool.from_json(result_data.to_json)
@@ -4504,9 +4503,9 @@ module Telegram
         # Collect parameters for file detection
         params_hash = {
           "business_connection_id" => business_connection_id,
-          "owned_gift_id" => owned_gift_id,
-          "new_owner_chat_id" => new_owner_chat_id,
-          "star_count" => star_count,
+          "owned_gift_id"          => owned_gift_id,
+          "new_owner_chat_id"      => new_owner_chat_id,
+          "star_count"             => star_count,
         }
 
         # Build JSON request parameters (method never accepts files)
@@ -4528,7 +4527,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Bool.from_json(result_data.to_json)
@@ -4543,14 +4542,14 @@ module Telegram
         # Collect parameters for file detection
         params_hash = {
           "business_connection_id" => business_connection_id,
-          "content" => content,
-          "active_period" => active_period,
-          "caption" => caption,
-          "parse_mode" => parse_mode,
-          "caption_entities" => caption_entities,
-          "areas" => areas,
-          "post_to_chat_page" => post_to_chat_page,
-          "protect_content" => protect_content,
+          "content"                => content,
+          "active_period"          => active_period,
+          "caption"                => caption,
+          "parse_mode"             => parse_mode,
+          "caption_entities"       => caption_entities,
+          "areas"                  => areas,
+          "post_to_chat_page"      => post_to_chat_page,
+          "protect_content"        => protect_content,
         }
 
         # Build JSON request parameters (method never accepts files)
@@ -4577,7 +4576,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Story.from_json(result_data.to_json)
@@ -4592,12 +4591,12 @@ module Telegram
         # Collect parameters for file detection
         params_hash = {
           "business_connection_id" => business_connection_id,
-          "story_id" => story_id,
-          "content" => content,
-          "caption" => caption,
-          "parse_mode" => parse_mode,
-          "caption_entities" => caption_entities,
-          "areas" => areas,
+          "story_id"               => story_id,
+          "content"                => content,
+          "caption"                => caption,
+          "parse_mode"             => parse_mode,
+          "caption_entities"       => caption_entities,
+          "areas"                  => areas,
         }
 
         # Build JSON request parameters (method never accepts files)
@@ -4622,7 +4621,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Story.from_json(result_data.to_json)
@@ -4637,7 +4636,7 @@ module Telegram
         # Collect parameters for file detection
         params_hash = {
           "business_connection_id" => business_connection_id,
-          "story_id" => story_id,
+          "story_id"               => story_id,
         }
 
         # Build JSON request parameters (method never accepts files)
@@ -4657,7 +4656,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Bool.from_json(result_data.to_json)
@@ -4672,14 +4671,14 @@ module Telegram
         # Collect parameters for file detection
         params_hash = {
           "business_connection_id" => business_connection_id,
-          "chat_id" => chat_id,
-          "message_id" => message_id,
-          "inline_message_id" => inline_message_id,
-          "text" => text,
-          "parse_mode" => parse_mode,
-          "entities" => entities,
-          "link_preview_options" => link_preview_options,
-          "reply_markup" => reply_markup,
+          "chat_id"                => chat_id,
+          "message_id"             => message_id,
+          "inline_message_id"      => inline_message_id,
+          "text"                   => text,
+          "parse_mode"             => parse_mode,
+          "entities"               => entities,
+          "link_preview_options"   => link_preview_options,
+          "reply_markup"           => reply_markup,
         }
 
         # Build JSON request parameters (method never accepts files)
@@ -4706,7 +4705,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         JSON::Any.from_json(result_data.to_json)
@@ -4720,15 +4719,15 @@ module Telegram
       def edit_message_caption(business_connection_id : String? = nil, chat_id : Int32 | String? = nil, message_id : Int32? = nil, inline_message_id : String? = nil, caption : String? = nil, parse_mode : String? = nil, caption_entities : Array(MessageEntity)? = nil, show_caption_above_media : Bool? = nil, reply_markup : InlineKeyboardMarkup? = nil) : JSON::Any
         # Collect parameters for file detection
         params_hash = {
-          "business_connection_id" => business_connection_id,
-          "chat_id" => chat_id,
-          "message_id" => message_id,
-          "inline_message_id" => inline_message_id,
-          "caption" => caption,
-          "parse_mode" => parse_mode,
-          "caption_entities" => caption_entities,
+          "business_connection_id"   => business_connection_id,
+          "chat_id"                  => chat_id,
+          "message_id"               => message_id,
+          "inline_message_id"        => inline_message_id,
+          "caption"                  => caption,
+          "parse_mode"               => parse_mode,
+          "caption_entities"         => caption_entities,
           "show_caption_above_media" => show_caption_above_media,
-          "reply_markup" => reply_markup,
+          "reply_markup"             => reply_markup,
         }
 
         # Build JSON request parameters (method never accepts files)
@@ -4755,7 +4754,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         JSON::Any.from_json(result_data.to_json)
@@ -4770,11 +4769,11 @@ module Telegram
         # Collect parameters for file detection
         params_hash = {
           "business_connection_id" => business_connection_id,
-          "chat_id" => chat_id,
-          "message_id" => message_id,
-          "inline_message_id" => inline_message_id,
-          "media" => media,
-          "reply_markup" => reply_markup,
+          "chat_id"                => chat_id,
+          "message_id"             => message_id,
+          "inline_message_id"      => inline_message_id,
+          "media"                  => media,
+          "reply_markup"           => reply_markup,
         }
 
         # Build JSON request parameters (method never accepts files)
@@ -4798,7 +4797,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         JSON::Any.from_json(result_data.to_json)
@@ -4813,16 +4812,16 @@ module Telegram
         # Collect parameters for file detection
         params_hash = {
           "business_connection_id" => business_connection_id,
-          "chat_id" => chat_id,
-          "message_id" => message_id,
-          "inline_message_id" => inline_message_id,
-          "latitude" => latitude,
-          "longitude" => longitude,
-          "live_period" => live_period,
-          "horizontal_accuracy" => horizontal_accuracy,
-          "heading" => heading,
+          "chat_id"                => chat_id,
+          "message_id"             => message_id,
+          "inline_message_id"      => inline_message_id,
+          "latitude"               => latitude,
+          "longitude"              => longitude,
+          "live_period"            => live_period,
+          "horizontal_accuracy"    => horizontal_accuracy,
+          "heading"                => heading,
           "proximity_alert_radius" => proximity_alert_radius,
-          "reply_markup" => reply_markup,
+          "reply_markup"           => reply_markup,
         }
 
         # Build JSON request parameters (method never accepts files)
@@ -4851,7 +4850,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         JSON::Any.from_json(result_data.to_json)
@@ -4866,10 +4865,10 @@ module Telegram
         # Collect parameters for file detection
         params_hash = {
           "business_connection_id" => business_connection_id,
-          "chat_id" => chat_id,
-          "message_id" => message_id,
-          "inline_message_id" => inline_message_id,
-          "reply_markup" => reply_markup,
+          "chat_id"                => chat_id,
+          "message_id"             => message_id,
+          "inline_message_id"      => inline_message_id,
+          "reply_markup"           => reply_markup,
         }
 
         # Build JSON request parameters (method never accepts files)
@@ -4892,7 +4891,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         JSON::Any.from_json(result_data.to_json)
@@ -4907,10 +4906,10 @@ module Telegram
         # Collect parameters for file detection
         params_hash = {
           "business_connection_id" => business_connection_id,
-          "chat_id" => chat_id,
-          "message_id" => message_id,
-          "checklist" => checklist,
-          "reply_markup" => reply_markup,
+          "chat_id"                => chat_id,
+          "message_id"             => message_id,
+          "checklist"              => checklist,
+          "reply_markup"           => reply_markup,
         }
 
         # Build JSON request parameters (method never accepts files)
@@ -4933,7 +4932,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Message.from_json(result_data.to_json)
@@ -4948,10 +4947,10 @@ module Telegram
         # Collect parameters for file detection
         params_hash = {
           "business_connection_id" => business_connection_id,
-          "chat_id" => chat_id,
-          "message_id" => message_id,
-          "inline_message_id" => inline_message_id,
-          "reply_markup" => reply_markup,
+          "chat_id"                => chat_id,
+          "message_id"             => message_id,
+          "inline_message_id"      => inline_message_id,
+          "reply_markup"           => reply_markup,
         }
 
         # Build JSON request parameters (method never accepts files)
@@ -4974,7 +4973,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         JSON::Any.from_json(result_data.to_json)
@@ -4989,9 +4988,9 @@ module Telegram
         # Collect parameters for file detection
         params_hash = {
           "business_connection_id" => business_connection_id,
-          "chat_id" => chat_id,
-          "message_id" => message_id,
-          "reply_markup" => reply_markup,
+          "chat_id"                => chat_id,
+          "message_id"             => message_id,
+          "reply_markup"           => reply_markup,
         }
 
         # Build JSON request parameters (method never accepts files)
@@ -5013,7 +5012,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Poll.from_json(result_data.to_json)
@@ -5027,9 +5026,9 @@ module Telegram
       def approve_suggested_post(chat_id : Int32, message_id : Int32, send_date : Int32? = nil) : Bool
         # Collect parameters for file detection
         params_hash = {
-          "chat_id" => chat_id,
+          "chat_id"    => chat_id,
           "message_id" => message_id,
-          "send_date" => send_date,
+          "send_date"  => send_date,
         }
 
         # Build JSON request parameters (method never accepts files)
@@ -5050,7 +5049,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Bool.from_json(result_data.to_json)
@@ -5064,9 +5063,9 @@ module Telegram
       def decline_suggested_post(chat_id : Int32, message_id : Int32, comment : String? = nil) : Bool
         # Collect parameters for file detection
         params_hash = {
-          "chat_id" => chat_id,
+          "chat_id"    => chat_id,
           "message_id" => message_id,
-          "comment" => comment,
+          "comment"    => comment,
         }
 
         # Build JSON request parameters (method never accepts files)
@@ -5087,7 +5086,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Bool.from_json(result_data.to_json)
@@ -5111,7 +5110,7 @@ module Telegram
       def delete_message(chat_id : Int32 | String, message_id : Int32) : Bool
         # Collect parameters for file detection
         params_hash = {
-          "chat_id" => chat_id,
+          "chat_id"    => chat_id,
           "message_id" => message_id,
         }
 
@@ -5132,7 +5131,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Bool.from_json(result_data.to_json)
@@ -5146,7 +5145,7 @@ module Telegram
       def delete_messages(chat_id : Int32 | String, message_ids : Array(Int32)) : Bool
         # Collect parameters for file detection
         params_hash = {
-          "chat_id" => chat_id,
+          "chat_id"     => chat_id,
           "message_ids" => message_ids,
         }
 
@@ -5167,7 +5166,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Bool.from_json(result_data.to_json)
@@ -5181,19 +5180,19 @@ module Telegram
       def send_sticker(chat_id : Int32 | String, sticker : Telegram::InputFile | File | IO | String, business_connection_id : String? = nil, message_thread_id : Int32? = nil, direct_messages_topic_id : Int32? = nil, emoji : String? = nil, disable_notification : Bool? = nil, protect_content : Bool? = nil, allow_paid_broadcast : Bool? = nil, message_effect_id : String? = nil, suggested_post_parameters : SuggestedPostParameters? = nil, reply_parameters : ReplyParameters? = nil, reply_markup : InlineKeyboardMarkup | ReplyKeyboardMarkup | ReplyKeyboardRemove | ForceReply? = nil) : Message
         # Collect parameters for file detection
         params_hash = {
-          "business_connection_id" => business_connection_id,
-          "chat_id" => chat_id,
-          "message_thread_id" => message_thread_id,
-          "direct_messages_topic_id" => direct_messages_topic_id,
-          "sticker" => sticker,
-          "emoji" => emoji,
-          "disable_notification" => disable_notification,
-          "protect_content" => protect_content,
-          "allow_paid_broadcast" => allow_paid_broadcast,
-          "message_effect_id" => message_effect_id,
+          "business_connection_id"    => business_connection_id,
+          "chat_id"                   => chat_id,
+          "message_thread_id"         => message_thread_id,
+          "direct_messages_topic_id"  => direct_messages_topic_id,
+          "sticker"                   => sticker,
+          "emoji"                     => emoji,
+          "disable_notification"      => disable_notification,
+          "protect_content"           => protect_content,
+          "allow_paid_broadcast"      => allow_paid_broadcast,
+          "message_effect_id"         => message_effect_id,
           "suggested_post_parameters" => suggested_post_parameters,
-          "reply_parameters" => reply_parameters,
-          "reply_markup" => reply_markup,
+          "reply_parameters"          => reply_parameters,
+          "reply_markup"              => reply_markup,
         }
 
         # Build JSON request parameters (method never accepts files)
@@ -5224,7 +5223,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Message.from_json(result_data.to_json)
@@ -5257,7 +5256,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         StickerSet.from_json(result_data.to_json)
@@ -5290,7 +5289,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Array(Sticker).from_json(result_data.to_json)
@@ -5304,8 +5303,8 @@ module Telegram
       def upload_sticker_file(user_id : Int32, sticker : Telegram::InputFile | File | IO, sticker_format : String) : TelegramFile
         # Collect parameters for file detection
         params_hash = {
-          "user_id" => user_id,
-          "sticker" => sticker,
+          "user_id"        => user_id,
+          "sticker"        => sticker,
           "sticker_format" => sticker_format,
         }
 
@@ -5315,14 +5314,14 @@ module Telegram
         if has_files
           # Use multipart form data for file uploads
           boundary, form_body = build_multipart_form_with_files(params_hash)
-          
+
           # Make HTTP request with multipart form using enhanced client
           url = "#{@api_url}/bot#{@token}/uploadStickerFile"
           response = @http_client.post_multipart(url, {boundary, form_body})
         else
           # Use JSON request when no files are present
           params = build_request_hash_from_hash(params_hash)
-          
+
           # Make HTTP request using enhanced client
           url = "#{@api_url}/bot#{@token}/uploadStickerFile"
           response = @http_client.post(url,
@@ -5335,7 +5334,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         TelegramFile.from_json(result_data.to_json)
@@ -5349,11 +5348,11 @@ module Telegram
       def create_new_sticker_set(user_id : Int32, name : String, title : String, stickers : Array(InputSticker), sticker_type : String? = nil, needs_repainting : Bool? = nil) : Bool
         # Collect parameters for file detection
         params_hash = {
-          "user_id" => user_id,
-          "name" => name,
-          "title" => title,
-          "stickers" => stickers,
-          "sticker_type" => sticker_type,
+          "user_id"          => user_id,
+          "name"             => name,
+          "title"            => title,
+          "stickers"         => stickers,
+          "sticker_type"     => sticker_type,
           "needs_repainting" => needs_repainting,
         }
 
@@ -5363,14 +5362,14 @@ module Telegram
         if has_files
           # Use multipart form data for file uploads
           boundary, form_body = build_multipart_form_with_files(params_hash)
-          
+
           # Make HTTP request with multipart form using enhanced client
           url = "#{@api_url}/bot#{@token}/createNewStickerSet"
           response = @http_client.post_multipart(url, {boundary, form_body})
         else
           # Use JSON request when no files are present
           params = build_request_hash_from_hash(params_hash)
-          
+
           # Make HTTP request using enhanced client
           url = "#{@api_url}/bot#{@token}/createNewStickerSet"
           response = @http_client.post(url,
@@ -5383,7 +5382,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Bool.from_json(result_data.to_json)
@@ -5398,7 +5397,7 @@ module Telegram
         # Collect parameters for file detection
         params_hash = {
           "user_id" => user_id,
-          "name" => name,
+          "name"    => name,
           "sticker" => sticker,
         }
 
@@ -5408,14 +5407,14 @@ module Telegram
         if has_files
           # Use multipart form data for file uploads
           boundary, form_body = build_multipart_form_with_files(params_hash)
-          
+
           # Make HTTP request with multipart form using enhanced client
           url = "#{@api_url}/bot#{@token}/addStickerToSet"
           response = @http_client.post_multipart(url, {boundary, form_body})
         else
           # Use JSON request when no files are present
           params = build_request_hash_from_hash(params_hash)
-          
+
           # Make HTTP request using enhanced client
           url = "#{@api_url}/bot#{@token}/addStickerToSet"
           response = @http_client.post(url,
@@ -5428,7 +5427,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Bool.from_json(result_data.to_json)
@@ -5442,7 +5441,7 @@ module Telegram
       def set_sticker_position_in_set(sticker : String, position : Int32) : Bool
         # Collect parameters for file detection
         params_hash = {
-          "sticker" => sticker,
+          "sticker"  => sticker,
           "position" => position,
         }
 
@@ -5463,7 +5462,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Bool.from_json(result_data.to_json)
@@ -5496,7 +5495,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Bool.from_json(result_data.to_json)
@@ -5510,10 +5509,10 @@ module Telegram
       def replace_sticker_in_set(user_id : Int32, name : String, old_sticker : String, sticker : InputSticker) : Bool
         # Collect parameters for file detection
         params_hash = {
-          "user_id" => user_id,
-          "name" => name,
+          "user_id"     => user_id,
+          "name"        => name,
           "old_sticker" => old_sticker,
-          "sticker" => sticker,
+          "sticker"     => sticker,
         }
 
         # Runtime detection: check if any parameters contain actual file data
@@ -5522,14 +5521,14 @@ module Telegram
         if has_files
           # Use multipart form data for file uploads
           boundary, form_body = build_multipart_form_with_files(params_hash)
-          
+
           # Make HTTP request with multipart form using enhanced client
           url = "#{@api_url}/bot#{@token}/replaceStickerInSet"
           response = @http_client.post_multipart(url, {boundary, form_body})
         else
           # Use JSON request when no files are present
           params = build_request_hash_from_hash(params_hash)
-          
+
           # Make HTTP request using enhanced client
           url = "#{@api_url}/bot#{@token}/replaceStickerInSet"
           response = @http_client.post(url,
@@ -5542,7 +5541,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Bool.from_json(result_data.to_json)
@@ -5556,7 +5555,7 @@ module Telegram
       def set_sticker_emoji_list(sticker : String, emoji_list : Array(String)) : Bool
         # Collect parameters for file detection
         params_hash = {
-          "sticker" => sticker,
+          "sticker"    => sticker,
           "emoji_list" => emoji_list,
         }
 
@@ -5577,7 +5576,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Bool.from_json(result_data.to_json)
@@ -5591,7 +5590,7 @@ module Telegram
       def set_sticker_keywords(sticker : String, keywords : Array(String)? = nil) : Bool
         # Collect parameters for file detection
         params_hash = {
-          "sticker" => sticker,
+          "sticker"  => sticker,
           "keywords" => keywords,
         }
 
@@ -5612,7 +5611,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Bool.from_json(result_data.to_json)
@@ -5626,7 +5625,7 @@ module Telegram
       def set_sticker_mask_position(sticker : String, mask_position : MaskPosition? = nil) : Bool
         # Collect parameters for file detection
         params_hash = {
-          "sticker" => sticker,
+          "sticker"       => sticker,
           "mask_position" => mask_position,
         }
 
@@ -5647,7 +5646,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Bool.from_json(result_data.to_json)
@@ -5661,7 +5660,7 @@ module Telegram
       def set_sticker_set_title(name : String, title : String) : Bool
         # Collect parameters for file detection
         params_hash = {
-          "name" => name,
+          "name"  => name,
           "title" => title,
         }
 
@@ -5682,7 +5681,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Bool.from_json(result_data.to_json)
@@ -5696,10 +5695,10 @@ module Telegram
       def set_sticker_set_thumbnail(name : String, user_id : Int32, format : String, thumbnail : Telegram::InputFile | File | IO | String? = nil) : Bool
         # Collect parameters for file detection
         params_hash = {
-          "name" => name,
-          "user_id" => user_id,
+          "name"      => name,
+          "user_id"   => user_id,
           "thumbnail" => thumbnail,
-          "format" => format,
+          "format"    => format,
         }
 
         # Runtime detection: check if any parameters contain actual file data
@@ -5708,14 +5707,14 @@ module Telegram
         if has_files
           # Use multipart form data for file uploads
           boundary, form_body = build_multipart_form_with_files(params_hash)
-          
+
           # Make HTTP request with multipart form using enhanced client
           url = "#{@api_url}/bot#{@token}/setStickerSetThumbnail"
           response = @http_client.post_multipart(url, {boundary, form_body})
         else
           # Use JSON request when no files are present
           params = build_request_hash_from_hash(params_hash)
-          
+
           # Make HTTP request using enhanced client
           url = "#{@api_url}/bot#{@token}/setStickerSetThumbnail"
           response = @http_client.post(url,
@@ -5728,7 +5727,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Bool.from_json(result_data.to_json)
@@ -5742,7 +5741,7 @@ module Telegram
       def set_custom_emoji_sticker_set_thumbnail(name : String, custom_emoji_id : String? = nil) : Bool
         # Collect parameters for file detection
         params_hash = {
-          "name" => name,
+          "name"            => name,
           "custom_emoji_id" => custom_emoji_id,
         }
 
@@ -5763,7 +5762,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Bool.from_json(result_data.to_json)
@@ -5796,7 +5795,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Bool.from_json(result_data.to_json)
@@ -5812,11 +5811,11 @@ module Telegram
         # Collect parameters for file detection
         params_hash = {
           "inline_query_id" => inline_query_id,
-          "results" => results,
-          "cache_time" => cache_time,
-          "is_personal" => is_personal,
-          "next_offset" => next_offset,
-          "button" => button,
+          "results"         => results,
+          "cache_time"      => cache_time,
+          "is_personal"     => is_personal,
+          "next_offset"     => next_offset,
+          "button"          => button,
         }
 
         # Build JSON request parameters (method never accepts files)
@@ -5840,7 +5839,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Bool.from_json(result_data.to_json)
@@ -5855,7 +5854,7 @@ module Telegram
         # Collect parameters for file detection
         params_hash = {
           "web_app_query_id" => web_app_query_id,
-          "result" => result,
+          "result"           => result,
         }
 
         # Build JSON request parameters (method never accepts files)
@@ -5875,7 +5874,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         SentWebAppMessage.from_json(result_data.to_json)
@@ -5889,11 +5888,11 @@ module Telegram
       def save_prepared_inline_message(user_id : Int32, result : InlineQueryResult, allow_user_chats : Bool? = nil, allow_bot_chats : Bool? = nil, allow_group_chats : Bool? = nil, allow_channel_chats : Bool? = nil) : PreparedInlineMessage
         # Collect parameters for file detection
         params_hash = {
-          "user_id" => user_id,
-          "result" => result,
-          "allow_user_chats" => allow_user_chats,
-          "allow_bot_chats" => allow_bot_chats,
-          "allow_group_chats" => allow_group_chats,
+          "user_id"             => user_id,
+          "result"              => result,
+          "allow_user_chats"    => allow_user_chats,
+          "allow_bot_chats"     => allow_bot_chats,
+          "allow_group_chats"   => allow_group_chats,
           "allow_channel_chats" => allow_channel_chats,
         }
 
@@ -5918,7 +5917,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         PreparedInlineMessage.from_json(result_data.to_json)
@@ -5932,37 +5931,37 @@ module Telegram
       def send_invoice(chat_id : Int32 | String, title : String, description : String, payload : String, currency : String, prices : Array(LabeledPrice), message_thread_id : Int32? = nil, direct_messages_topic_id : Int32? = nil, provider_token : String? = nil, max_tip_amount : Int32? = nil, suggested_tip_amounts : Array(Int32)? = nil, start_parameter : String? = nil, provider_data : String? = nil, photo_url : String? = nil, photo_size : Int32? = nil, photo_width : Int32? = nil, photo_height : Int32? = nil, need_name : Bool? = nil, need_phone_number : Bool? = nil, need_email : Bool? = nil, need_shipping_address : Bool? = nil, send_phone_number_to_provider : Bool? = nil, send_email_to_provider : Bool? = nil, is_flexible : Bool? = nil, disable_notification : Bool? = nil, protect_content : Bool? = nil, allow_paid_broadcast : Bool? = nil, message_effect_id : String? = nil, suggested_post_parameters : SuggestedPostParameters? = nil, reply_parameters : ReplyParameters? = nil, reply_markup : InlineKeyboardMarkup? = nil) : Message
         # Collect parameters for file detection
         params_hash = {
-          "chat_id" => chat_id,
-          "message_thread_id" => message_thread_id,
-          "direct_messages_topic_id" => direct_messages_topic_id,
-          "title" => title,
-          "description" => description,
-          "payload" => payload,
-          "provider_token" => provider_token,
-          "currency" => currency,
-          "prices" => prices,
-          "max_tip_amount" => max_tip_amount,
-          "suggested_tip_amounts" => suggested_tip_amounts,
-          "start_parameter" => start_parameter,
-          "provider_data" => provider_data,
-          "photo_url" => photo_url,
-          "photo_size" => photo_size,
-          "photo_width" => photo_width,
-          "photo_height" => photo_height,
-          "need_name" => need_name,
-          "need_phone_number" => need_phone_number,
-          "need_email" => need_email,
-          "need_shipping_address" => need_shipping_address,
+          "chat_id"                       => chat_id,
+          "message_thread_id"             => message_thread_id,
+          "direct_messages_topic_id"      => direct_messages_topic_id,
+          "title"                         => title,
+          "description"                   => description,
+          "payload"                       => payload,
+          "provider_token"                => provider_token,
+          "currency"                      => currency,
+          "prices"                        => prices,
+          "max_tip_amount"                => max_tip_amount,
+          "suggested_tip_amounts"         => suggested_tip_amounts,
+          "start_parameter"               => start_parameter,
+          "provider_data"                 => provider_data,
+          "photo_url"                     => photo_url,
+          "photo_size"                    => photo_size,
+          "photo_width"                   => photo_width,
+          "photo_height"                  => photo_height,
+          "need_name"                     => need_name,
+          "need_phone_number"             => need_phone_number,
+          "need_email"                    => need_email,
+          "need_shipping_address"         => need_shipping_address,
           "send_phone_number_to_provider" => send_phone_number_to_provider,
-          "send_email_to_provider" => send_email_to_provider,
-          "is_flexible" => is_flexible,
-          "disable_notification" => disable_notification,
-          "protect_content" => protect_content,
-          "allow_paid_broadcast" => allow_paid_broadcast,
-          "message_effect_id" => message_effect_id,
-          "suggested_post_parameters" => suggested_post_parameters,
-          "reply_parameters" => reply_parameters,
-          "reply_markup" => reply_markup,
+          "send_email_to_provider"        => send_email_to_provider,
+          "is_flexible"                   => is_flexible,
+          "disable_notification"          => disable_notification,
+          "protect_content"               => protect_content,
+          "allow_paid_broadcast"          => allow_paid_broadcast,
+          "message_effect_id"             => message_effect_id,
+          "suggested_post_parameters"     => suggested_post_parameters,
+          "reply_parameters"              => reply_parameters,
+          "reply_markup"                  => reply_markup,
         }
 
         # Build JSON request parameters (method never accepts files)
@@ -6011,7 +6010,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Message.from_json(result_data.to_json)
@@ -6025,28 +6024,28 @@ module Telegram
       def create_invoice_link(title : String, description : String, payload : String, currency : String, prices : Array(LabeledPrice), business_connection_id : String? = nil, provider_token : String? = nil, subscription_period : Int32? = nil, max_tip_amount : Int32? = nil, suggested_tip_amounts : Array(Int32)? = nil, provider_data : String? = nil, photo_url : String? = nil, photo_size : Int32? = nil, photo_width : Int32? = nil, photo_height : Int32? = nil, need_name : Bool? = nil, need_phone_number : Bool? = nil, need_email : Bool? = nil, need_shipping_address : Bool? = nil, send_phone_number_to_provider : Bool? = nil, send_email_to_provider : Bool? = nil, is_flexible : Bool? = nil) : String
         # Collect parameters for file detection
         params_hash = {
-          "business_connection_id" => business_connection_id,
-          "title" => title,
-          "description" => description,
-          "payload" => payload,
-          "provider_token" => provider_token,
-          "currency" => currency,
-          "prices" => prices,
-          "subscription_period" => subscription_period,
-          "max_tip_amount" => max_tip_amount,
-          "suggested_tip_amounts" => suggested_tip_amounts,
-          "provider_data" => provider_data,
-          "photo_url" => photo_url,
-          "photo_size" => photo_size,
-          "photo_width" => photo_width,
-          "photo_height" => photo_height,
-          "need_name" => need_name,
-          "need_phone_number" => need_phone_number,
-          "need_email" => need_email,
-          "need_shipping_address" => need_shipping_address,
+          "business_connection_id"        => business_connection_id,
+          "title"                         => title,
+          "description"                   => description,
+          "payload"                       => payload,
+          "provider_token"                => provider_token,
+          "currency"                      => currency,
+          "prices"                        => prices,
+          "subscription_period"           => subscription_period,
+          "max_tip_amount"                => max_tip_amount,
+          "suggested_tip_amounts"         => suggested_tip_amounts,
+          "provider_data"                 => provider_data,
+          "photo_url"                     => photo_url,
+          "photo_size"                    => photo_size,
+          "photo_width"                   => photo_width,
+          "photo_height"                  => photo_height,
+          "need_name"                     => need_name,
+          "need_phone_number"             => need_phone_number,
+          "need_email"                    => need_email,
+          "need_shipping_address"         => need_shipping_address,
           "send_phone_number_to_provider" => send_phone_number_to_provider,
-          "send_email_to_provider" => send_email_to_provider,
-          "is_flexible" => is_flexible,
+          "send_email_to_provider"        => send_email_to_provider,
+          "is_flexible"                   => is_flexible,
         }
 
         # Build JSON request parameters (method never accepts files)
@@ -6086,7 +6085,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         String.from_json(result_data.to_json)
@@ -6101,9 +6100,9 @@ module Telegram
         # Collect parameters for file detection
         params_hash = {
           "shipping_query_id" => shipping_query_id,
-          "ok" => ok,
-          "shipping_options" => shipping_options,
-          "error_message" => error_message,
+          "ok"                => ok,
+          "shipping_options"  => shipping_options,
+          "error_message"     => error_message,
         }
 
         # Build JSON request parameters (method never accepts files)
@@ -6125,7 +6124,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Bool.from_json(result_data.to_json)
@@ -6140,8 +6139,8 @@ module Telegram
         # Collect parameters for file detection
         params_hash = {
           "pre_checkout_query_id" => pre_checkout_query_id,
-          "ok" => ok,
-          "error_message" => error_message,
+          "ok"                    => ok,
+          "error_message"         => error_message,
         }
 
         # Build JSON request parameters (method never accepts files)
@@ -6162,7 +6161,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Bool.from_json(result_data.to_json)
@@ -6173,9 +6172,9 @@ module Telegram
       #
       # Returns: StarAmount
       # See: https://core.telegram.org/bots/api#getmystarbalance
-      def get_my_star_balance() : StarAmount
+      def get_my_star_balance : StarAmount
         # Build JSON request parameters (method never accepts files)
-        params = build_request_hash(        )
+        params = build_request_hash()
 
         # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/getMyStarBalance"
@@ -6188,7 +6187,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         StarAmount.from_json(result_data.to_json)
@@ -6203,7 +6202,7 @@ module Telegram
         # Collect parameters for file detection
         params_hash = {
           "offset" => offset,
-          "limit" => limit,
+          "limit"  => limit,
         }
 
         # Build JSON request parameters (method never accepts files)
@@ -6223,7 +6222,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         StarTransactions.from_json(result_data.to_json)
@@ -6237,7 +6236,7 @@ module Telegram
       def refund_star_payment(user_id : Int32, telegram_payment_charge_id : String) : Bool
         # Collect parameters for file detection
         params_hash = {
-          "user_id" => user_id,
+          "user_id"                    => user_id,
           "telegram_payment_charge_id" => telegram_payment_charge_id,
         }
 
@@ -6258,7 +6257,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Bool.from_json(result_data.to_json)
@@ -6272,9 +6271,9 @@ module Telegram
       def edit_user_star_subscription(user_id : Int32, telegram_payment_charge_id : String, is_canceled : Bool) : Bool
         # Collect parameters for file detection
         params_hash = {
-          "user_id" => user_id,
+          "user_id"                    => user_id,
           "telegram_payment_charge_id" => telegram_payment_charge_id,
-          "is_canceled" => is_canceled,
+          "is_canceled"                => is_canceled,
         }
 
         # Build JSON request parameters (method never accepts files)
@@ -6295,7 +6294,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Bool.from_json(result_data.to_json)
@@ -6311,7 +6310,7 @@ module Telegram
         # Collect parameters for file detection
         params_hash = {
           "user_id" => user_id,
-          "errors" => errors,
+          "errors"  => errors,
         }
 
         # Build JSON request parameters (method never accepts files)
@@ -6331,7 +6330,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Bool.from_json(result_data.to_json)
@@ -6346,15 +6345,15 @@ module Telegram
         # Collect parameters for file detection
         params_hash = {
           "business_connection_id" => business_connection_id,
-          "chat_id" => chat_id,
-          "message_thread_id" => message_thread_id,
-          "game_short_name" => game_short_name,
-          "disable_notification" => disable_notification,
-          "protect_content" => protect_content,
-          "allow_paid_broadcast" => allow_paid_broadcast,
-          "message_effect_id" => message_effect_id,
-          "reply_parameters" => reply_parameters,
-          "reply_markup" => reply_markup,
+          "chat_id"                => chat_id,
+          "message_thread_id"      => message_thread_id,
+          "game_short_name"        => game_short_name,
+          "disable_notification"   => disable_notification,
+          "protect_content"        => protect_content,
+          "allow_paid_broadcast"   => allow_paid_broadcast,
+          "message_effect_id"      => message_effect_id,
+          "reply_parameters"       => reply_parameters,
+          "reply_markup"           => reply_markup,
         }
 
         # Build JSON request parameters (method never accepts files)
@@ -6382,7 +6381,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Message.from_json(result_data.to_json)
@@ -6396,13 +6395,13 @@ module Telegram
       def set_game_score(user_id : Int32, score : Int32, force : Bool? = nil, disable_edit_message : Bool? = nil, chat_id : Int32? = nil, message_id : Int32? = nil, inline_message_id : String? = nil) : JSON::Any
         # Collect parameters for file detection
         params_hash = {
-          "user_id" => user_id,
-          "score" => score,
-          "force" => force,
+          "user_id"              => user_id,
+          "score"                => score,
+          "force"                => force,
           "disable_edit_message" => disable_edit_message,
-          "chat_id" => chat_id,
-          "message_id" => message_id,
-          "inline_message_id" => inline_message_id,
+          "chat_id"              => chat_id,
+          "message_id"           => message_id,
+          "inline_message_id"    => inline_message_id,
         }
 
         # Build JSON request parameters (method never accepts files)
@@ -6427,7 +6426,7 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         JSON::Any.from_json(result_data.to_json)
@@ -6441,9 +6440,9 @@ module Telegram
       def get_game_high_scores(user_id : Int32, chat_id : Int32? = nil, message_id : Int32? = nil, inline_message_id : String? = nil) : Array(GameHighScore)
         # Collect parameters for file detection
         params_hash = {
-          "user_id" => user_id,
-          "chat_id" => chat_id,
-          "message_id" => message_id,
+          "user_id"           => user_id,
+          "chat_id"           => chat_id,
+          "message_id"        => message_id,
           "inline_message_id" => inline_message_id,
         }
 
@@ -6466,12 +6465,11 @@ module Telegram
         json_response = JSON.parse(response.body)
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "API Error: " + error_desc
+          raise Telegram::APIError.new("API Error: " + error_desc)
         end
         result_data = json_response["result"]
         Array(GameHighScore).from_json(result_data.to_json)
       end
-
     end
   end
 end

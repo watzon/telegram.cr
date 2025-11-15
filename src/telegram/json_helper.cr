@@ -46,8 +46,8 @@ module Telegram
     # params = build_request_hash(
     #   chat_id: 12345,
     #   text: "Hello",
-    #   disable_notification: false,  # Will be included (false != nil)
-    #   reply_markup: nil              # Will be excluded
+    #   disable_notification: false, # Will be included (false != nil)
+    #   reply_markup: nil            # Will be excluded
     # )
     # # => {"chat_id" => 12345_i64, "text" => "Hello", "disable_notification" => false}
     # ```
@@ -80,9 +80,9 @@ module Telegram
     #
     # ```
     # params = build_request_hash_from_hash({
-    #   "chat_id" => 12345,
-    #   "text" => "Hello",
-    #   "disable_notification" => false
+    #   "chat_id"              => 12345,
+    #   "text"                 => "Hello",
+    #   "disable_notification" => false,
     # })
     # ```
     private def build_request_hash_from_hash(hash : Hash) : Hash(String, JSON::Any)
@@ -99,7 +99,6 @@ module Telegram
       params
     end
 
-  
     # Convert any Crystal type to JSON::Any safely with comprehensive type handling
     # This is the core conversion method that handles all supported types
     #
@@ -130,7 +129,7 @@ module Telegram
       when Bool
         JSON::Any.new(value)
       when Int32
-        JSON::Any.new(value.to_i64)  # Telegram API expects 64-bit integers
+        JSON::Any.new(value.to_i64) # Telegram API expects 64-bit integers
       when Int64
         JSON::Any.new(value)
       when Int16
@@ -225,7 +224,7 @@ module Telegram
     # ## Example
     #
     # ```
-    # contains_file_data?(File.open("photo.jpg"))  # => true
+    # contains_file_data?(File.open("photo.jpg")) # => true
     # contains_file_data?("some text")            # => false
     # contains_file_data?([file1, file2])         # => true
     # ```
@@ -266,7 +265,7 @@ module Telegram
 
       # Telegram has length limits for certain fields
       # This is a general check - specific limits depend on the field
-      if str.bytesize > 4096  # Conservative limit for most text fields
+      if str.bytesize > 4096 # Conservative limit for most text fields
         # Note: Some fields like photo captions have specific limits (1024 chars)
         # This is a general validation that can be overridden per field
       end
@@ -329,8 +328,8 @@ module Telegram
     # ```
     # boundary, form_body = build_multipart_form({
     #   "chat_id" => 12345,
-    #   "photo" => File.open("image.jpg"),
-    #   "caption" => "My photo"
+    #   "photo"   => File.open("image.jpg"),
+    #   "caption" => "My photo",
     # })
     # ```
     private def build_multipart_form(params : Hash, boundary : String? = nil) : {String, IO}
@@ -402,10 +401,10 @@ module Telegram
     #
     # ```
     # boundary, form_body = build_multipart_form_with_files({
-    #   "chat_id" => 12345,
-    #   "photo" => File.open("image.jpg"),  # Will be uploaded
-    #   "caption" => "My photo",
-    #   "reply_markup" => {"inline_keyboard" => [[{"text" => "Button"}]]}
+    #   "chat_id"      => 12345,
+    #   "photo"        => File.open("image.jpg"), # Will be uploaded
+    #   "caption"      => "My photo",
+    #   "reply_markup" => {"inline_keyboard" => [[{"text" => "Button"}]]},
     # })
     # ```
     private def build_multipart_form_with_files(params : Hash, boundary : String? = nil) : {String, IO}
@@ -507,17 +506,17 @@ module Telegram
 
       case ext
       when ".jpg", ".jpeg" then "image/jpeg"
-      when ".png" then "image/png"
-      when ".gif" then "image/gif"
-      when ".webp" then "image/webp"
-      when ".mp4" then "video/mp4"
-      when ".webm" then "video/webm"
-      when ".pdf" then "application/pdf"
-      when ".zip" then "application/zip"
-      when ".txt" then "text/plain"
-      when ".json" then "application/json"
-      when ".xml" then "application/xml"
-      else "application/octet-stream"
+      when ".png"          then "image/png"
+      when ".gif"          then "image/gif"
+      when ".webp"         then "image/webp"
+      when ".mp4"          then "video/mp4"
+      when ".webm"         then "video/webm"
+      when ".pdf"          then "application/pdf"
+      when ".zip"          then "application/zip"
+      when ".txt"          then "text/plain"
+      when ".json"         then "application/json"
+      when ".xml"          then "application/xml"
+      else                      "application/octet-stream"
       end
     end
 
@@ -538,8 +537,8 @@ module Telegram
     # ```
     # flatten_hash({
     #   "reply_markup" => {
-    #     "inline_keyboard" => [[{"text" => "Button", "callback_data" => "data"}]]
-    #   }
+    #     "inline_keyboard" => [[{"text" => "Button", "callback_data" => "data"}]],
+    #   },
     # })
     # # => {"reply_markup.inline_keyboard" => [[{"text" => "Button", "callback_data" => "data"}]]}
     # ```
@@ -591,9 +590,9 @@ module Telegram
     # Cache for frequently used JSON::Any values
     # Performance optimization for common boolean and nil values
     CACHED_JSON_VALUES = {
-      true => JSON::Any.new(true),
+      true  => JSON::Any.new(true),
       false => JSON::Any.new(false),
-      nil => JSON::Any.new(nil)
+      nil   => JSON::Any.new(nil),
     } of Nil | Bool => JSON::Any
   end
 end

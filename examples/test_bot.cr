@@ -16,7 +16,7 @@ module TelegramExamples
 
     def initialize(
       token : String = ENV["TELEGRAM_TEST_TOKEN"],
-      @default_chat_id : Int64 = ENV["TELEGRAM_TEST_CHAT_ID"].to_i64
+      @default_chat_id : Int64 = ENV["TELEGRAM_TEST_CHAT_ID"].to_i64,
     )
       @client = Telegram::APIClient.new(token)
       @last_update_id = 0
@@ -92,14 +92,14 @@ module TelegramExamples
             Telegram::InlineKeyboardButton.new(
               text: "Telegram Docs",
               url: "https://core.telegram.org/bots"
-            )
+            ),
           ],
           [
             Telegram::InlineKeyboardButton.new(
               text: "Trigger Callback",
               callback_data: "PING"
-            )
-          ]
+            ),
+          ],
         ]
       )
 

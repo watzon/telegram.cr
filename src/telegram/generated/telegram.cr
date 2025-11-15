@@ -7,7 +7,7 @@
 # It provides typesafe access to all Telegram Bot API methods and types.
 #
 # Example usage:
-# ```crystal
+# ```
 # require "telegram"
 #
 # client = Telegram::APIClient.new("YOUR_BOT_TOKEN")
@@ -150,7 +150,7 @@ module Telegram
       chat_member : ChatMemberUpdated? = nil,
       chat_join_request : ChatJoinRequest? = nil,
       chat_boost : ChatBoostUpdated? = nil,
-      removed_chat_boost : ChatBoostRemoved? = nil
+      removed_chat_boost : ChatBoostRemoved? = nil,
     )
       @update_id = update_id
       @message = message
@@ -219,7 +219,6 @@ module Telegram
     # Optional. A list of update types the bot is subscribed to. Defaults to all update types except chat_member
     @[JSON::Field(key: "allowed_updates")]
     @allowed_updates : Array(String)?
-
   end
 
   # Telegram API type: User
@@ -292,7 +291,7 @@ module Telegram
       can_read_all_group_messages : Bool? = nil,
       supports_inline_queries : Bool? = nil,
       can_connect_to_business : Bool? = nil,
-      has_main_web_app : Bool? = nil
+      has_main_web_app : Bool? = nil,
     )
       @id = id
       @is_bot = is_bot
@@ -355,7 +354,7 @@ module Telegram
       first_name : String? = nil,
       last_name : String? = nil,
       is_forum : Bool? = nil,
-      is_direct_messages : Bool? = nil
+      is_direct_messages : Bool? = nil,
     )
       @id = id
       @type = type
@@ -560,7 +559,6 @@ module Telegram
     # Optional. For supergroups, the location to which the supergroup is connected
     @[JSON::Field(key: "location")]
     @location : ChatLocation?
-
   end
 
   # Telegram API type: Message
@@ -1078,7 +1076,7 @@ module Telegram
       video_chat_ended : VideoChatEnded? = nil,
       video_chat_participants_invited : VideoChatParticipantsInvited? = nil,
       web_app_data : WebAppData? = nil,
-      reply_markup : InlineKeyboardMarkup? = nil
+      reply_markup : InlineKeyboardMarkup? = nil,
     )
       @message_id = message_id
       @date = date
@@ -1193,7 +1191,6 @@ module Telegram
     # Unique message identifier. In specific instances (e.g., message containing a video sent to a big chat), the server might automatically schedule a message instead of sending it immediately. In such cases, this field will be 0 and the relevant message will be unusable until it is actually sent
     @[JSON::Field(key: "message_id")]
     @message_id : Int32 | Int64
-
   end
 
   # Telegram API type: InaccessibleMessage
@@ -1212,7 +1209,6 @@ module Telegram
     # Always 0. The field can be used to differentiate regular and inaccessible messages.
     @[JSON::Field(key: "date")]
     @date : Int64
-
   end
 
   # Telegram API type: MaybeInaccessibleMessage
@@ -1256,7 +1252,6 @@ module Telegram
     # Optional. For "custom_emoji" only, unique identifier of the custom emoji. Use getCustomEmojiStickers to get full information about the sticker
     @[JSON::Field(key: "custom_emoji_id")]
     @custom_emoji_id : String?
-
   end
 
   # Telegram API type: TextQuote
@@ -1279,7 +1274,6 @@ module Telegram
     # Optional. True, if the quote was chosen manually by the message sender. Otherwise, the quote was added automatically by the server.
     @[JSON::Field(key: "is_manual")]
     @is_manual : Bool?
-
   end
 
   # Telegram API type: ExternalReplyInfo
@@ -1386,7 +1380,6 @@ module Telegram
     # Optional. Message is a venue, information about the venue
     @[JSON::Field(key: "venue")]
     @venue : Venue?
-
   end
 
   # Telegram API type: ReplyParameters
@@ -1425,7 +1418,6 @@ module Telegram
     # Optional. Identifier of the specific checklist task to be replied to
     @[JSON::Field(key: "checklist_task_id")]
     @checklist_task_id : Int64?
-
   end
 
   # Telegram API type: MessageOrigin
@@ -1455,7 +1447,6 @@ module Telegram
     # User that sent the message originally
     @[JSON::Field(key: "sender_user")]
     @sender_user : User
-
   end
 
   # Telegram API type: MessageOriginHiddenUser
@@ -1474,7 +1465,6 @@ module Telegram
     # Name of the user that sent the message originally
     @[JSON::Field(key: "sender_user_name")]
     @sender_user_name : String
-
   end
 
   # Telegram API type: MessageOriginChat
@@ -1497,7 +1487,6 @@ module Telegram
     # Optional. For messages originally sent by an anonymous chat administrator, original message author signature
     @[JSON::Field(key: "author_signature")]
     @author_signature : String?
-
   end
 
   # Telegram API type: MessageOriginChannel
@@ -1524,7 +1513,6 @@ module Telegram
     # Optional. Signature of the original post author
     @[JSON::Field(key: "author_signature")]
     @author_signature : String?
-
   end
 
   # Telegram API type: PhotoSize
@@ -1551,7 +1539,6 @@ module Telegram
     # Optional. File size in bytes
     @[JSON::Field(key: "file_size")]
     @file_size : Int64?
-
   end
 
   # Telegram API type: Animation
@@ -1594,7 +1581,6 @@ module Telegram
     # Optional. File size in bytes. It can be bigger than 2^31 and some programming languages may have difficulty/silent defects in interpreting it. But it has at most 52 significant bits, so a signed 64-bit integer or double-precision float type are safe for storing this value.
     @[JSON::Field(key: "file_size")]
     @file_size : Int64?
-
   end
 
   # Telegram API type: Audio
@@ -1637,7 +1623,6 @@ module Telegram
     # Optional. Thumbnail of the album cover to which the music file belongs
     @[JSON::Field(key: "thumbnail")]
     @thumbnail : PhotoSize?
-
   end
 
   # Telegram API type: Document
@@ -1668,7 +1653,6 @@ module Telegram
     # Optional. File size in bytes. It can be bigger than 2^31 and some programming languages may have difficulty/silent defects in interpreting it. But it has at most 52 significant bits, so a signed 64-bit integer or double-precision float type are safe for storing this value.
     @[JSON::Field(key: "file_size")]
     @file_size : Int64?
-
   end
 
   # Telegram API type: Story
@@ -1683,7 +1667,6 @@ module Telegram
     # Unique identifier for the story in the chat
     @[JSON::Field(key: "id")]
     @id : Int64
-
   end
 
   # Telegram API type: Video
@@ -1734,7 +1717,6 @@ module Telegram
     # Optional. File size in bytes. It can be bigger than 2^31 and some programming languages may have difficulty/silent defects in interpreting it. But it has at most 52 significant bits, so a signed 64-bit integer or double-precision float type are safe for storing this value.
     @[JSON::Field(key: "file_size")]
     @file_size : Int64?
-
   end
 
   # Telegram API type: VideoNote
@@ -1765,7 +1747,6 @@ module Telegram
     # Optional. File size in bytes
     @[JSON::Field(key: "file_size")]
     @file_size : Int64?
-
   end
 
   # Telegram API type: Voice
@@ -1792,7 +1773,6 @@ module Telegram
     # Optional. File size in bytes. It can be bigger than 2^31 and some programming languages may have difficulty/silent defects in interpreting it. But it has at most 52 significant bits, so a signed 64-bit integer or double-precision float type are safe for storing this value.
     @[JSON::Field(key: "file_size")]
     @file_size : Int64?
-
   end
 
   # Telegram API type: PaidMediaInfo
@@ -1807,7 +1787,6 @@ module Telegram
     # Information about the paid media
     @[JSON::Field(key: "paid_media")]
     @paid_media : Array(PaidMedia)
-
   end
 
   # Telegram API type: PaidMedia
@@ -1840,7 +1819,6 @@ module Telegram
     # Optional. Duration of the media in seconds as defined by the sender
     @[JSON::Field(key: "duration")]
     @duration : Int64?
-
   end
 
   # Telegram API type: PaidMediaPhoto
@@ -1855,7 +1833,6 @@ module Telegram
     # The photo
     @[JSON::Field(key: "photo")]
     @photo : Array(PhotoSize)
-
   end
 
   # Telegram API type: PaidMediaVideo
@@ -1870,7 +1847,6 @@ module Telegram
     # The video
     @[JSON::Field(key: "video")]
     @video : Video
-
   end
 
   # Telegram API type: Contact
@@ -1897,7 +1873,6 @@ module Telegram
     # Optional. Additional data about the contact in the form of a vCard
     @[JSON::Field(key: "vcard")]
     @vcard : String?
-
   end
 
   # Telegram API type: Dice
@@ -1912,7 +1887,6 @@ module Telegram
     # Value of the dice, 1-6 for "🎲", "🎯" and "🎳" base emoji, 1-5 for "🏀" and "⚽" base emoji, 1-64 for "🎰" base emoji
     @[JSON::Field(key: "value")]
     @value : Int64
-
   end
 
   # Telegram API type: PollOption
@@ -1931,7 +1905,6 @@ module Telegram
     # Optional. Special entities that appear in the option text. Currently, only custom emoji entities are allowed in poll option texts
     @[JSON::Field(key: "text_entities")]
     @text_entities : Array(MessageEntity)?
-
   end
 
   # Telegram API type: InputPollOption
@@ -1950,7 +1923,6 @@ module Telegram
     # Optional. A JSON-serialized list of special entities that appear in the poll option text. It can be specified instead of text_parse_mode
     @[JSON::Field(key: "text_entities")]
     @text_entities : Array(MessageEntity)?
-
   end
 
   # Telegram API type: PollAnswer
@@ -1973,7 +1945,6 @@ module Telegram
     # Optional. The user that changed the answer to the poll, if the voter isn't anonymous
     @[JSON::Field(key: "user")]
     @user : User?
-
   end
 
   # Telegram API type: Poll
@@ -2051,7 +2022,7 @@ module Telegram
       explanation : String? = nil,
       explanation_entities : Array(MessageEntity)? = nil,
       open_period : Int64? = nil,
-      close_date : Int64? = nil
+      close_date : Int64? = nil,
     )
       @id = id
       @question = question
@@ -2094,7 +2065,6 @@ module Telegram
     # Optional. Point in time (Unix timestamp) when the task was completed; 0 if the task wasn't completed
     @[JSON::Field(key: "completion_date")]
     @completion_date : Int64?
-
   end
 
   # Telegram API type: Checklist
@@ -2121,7 +2091,6 @@ module Telegram
     # Optional. True, if users other than the creator of the list can mark tasks as done or not done
     @[JSON::Field(key: "others_can_mark_tasks_as_done")]
     @others_can_mark_tasks_as_done : Bool?
-
   end
 
   # Telegram API type: InputChecklistTask
@@ -2144,7 +2113,6 @@ module Telegram
     # Optional. List of special entities that appear in the text, which can be specified instead of parse_mode. Currently, only bold, italic, underline, strikethrough, spoiler, and custom_emoji entities are allowed.
     @[JSON::Field(key: "text_entities")]
     @text_entities : Array(MessageEntity)?
-
   end
 
   # Telegram API type: InputChecklist
@@ -2175,7 +2143,6 @@ module Telegram
     # Optional. Pass True if other users can mark tasks as done or not done in the checklist
     @[JSON::Field(key: "others_can_mark_tasks_as_done")]
     @others_can_mark_tasks_as_done : Bool?
-
   end
 
   # Telegram API type: ChecklistTasksDone
@@ -2194,7 +2161,6 @@ module Telegram
     # Optional. Identifiers of the tasks that were marked as not done
     @[JSON::Field(key: "marked_as_not_done_task_ids")]
     @marked_as_not_done_task_ids : Array(Int64)?
-
   end
 
   # Telegram API type: ChecklistTasksAdded
@@ -2209,7 +2175,6 @@ module Telegram
     # Optional. Message containing the checklist to which the tasks were added. Note that the Message object in this field will not contain the reply_to_message field even if it itself is a reply.
     @[JSON::Field(key: "checklist_message")]
     @checklist_message : Message?
-
   end
 
   # Telegram API type: Location
@@ -2240,7 +2205,6 @@ module Telegram
     # Optional. The maximum distance for proximity alerts about approaching another chat member, in meters. For sent live locations only.
     @[JSON::Field(key: "proximity_alert_radius")]
     @proximity_alert_radius : Int64?
-
   end
 
   # Telegram API type: Venue
@@ -2275,7 +2239,6 @@ module Telegram
     # Optional. Google Places type of the venue. (See supported types.)
     @[JSON::Field(key: "google_place_type")]
     @google_place_type : String?
-
   end
 
   # Telegram API type: WebAppData
@@ -2290,7 +2253,6 @@ module Telegram
     # Text of the web_app keyboard button from which the Web App was opened. Be aware that a bad client can send arbitrary data in this field.
     @[JSON::Field(key: "button_text")]
     @button_text : String
-
   end
 
   # Telegram API type: ProximityAlertTriggered
@@ -2309,7 +2271,6 @@ module Telegram
     # The distance between the users
     @[JSON::Field(key: "distance")]
     @distance : Int64
-
   end
 
   # Telegram API type: MessageAutoDeleteTimerChanged
@@ -2320,7 +2281,6 @@ module Telegram
     # New auto-delete time for messages in the chat; in seconds
     @[JSON::Field(key: "message_auto_delete_time")]
     @message_auto_delete_time : Int64
-
   end
 
   # Telegram API type: ChatBoostAdded
@@ -2331,7 +2291,6 @@ module Telegram
     # Number of boosts added by the user
     @[JSON::Field(key: "boost_count")]
     @boost_count : Int64
-
   end
 
   # Telegram API type: BackgroundFill
@@ -2356,7 +2315,6 @@ module Telegram
     # The color of the background fill in the RGB24 format
     @[JSON::Field(key: "color")]
     @color : Int64
-
   end
 
   # Telegram API type: BackgroundFillGradient
@@ -2379,7 +2337,6 @@ module Telegram
     # Clockwise rotation angle of the background fill in degrees; 0-359
     @[JSON::Field(key: "rotation_angle")]
     @rotation_angle : Int64
-
   end
 
   # Telegram API type: BackgroundFillFreeformGradient
@@ -2394,7 +2351,6 @@ module Telegram
     # A list of the 3 or 4 base colors that are used to generate the freeform gradient in the RGB24 format
     @[JSON::Field(key: "colors")]
     @colors : Array(Int64)
-
   end
 
   # Telegram API type: BackgroundType
@@ -2424,7 +2380,6 @@ module Telegram
     # Dimming of the background in dark themes, as a percentage; 0-100
     @[JSON::Field(key: "dark_theme_dimming")]
     @dark_theme_dimming : Int64
-
   end
 
   # Telegram API type: BackgroundTypeWallpaper
@@ -2451,7 +2406,6 @@ module Telegram
     # Optional. True, if the background moves slightly when the device is tilted
     @[JSON::Field(key: "is_moving")]
     @is_moving : Bool?
-
   end
 
   # Telegram API type: BackgroundTypePattern
@@ -2482,7 +2436,6 @@ module Telegram
     # Optional. True, if the background moves slightly when the device is tilted
     @[JSON::Field(key: "is_moving")]
     @is_moving : Bool?
-
   end
 
   # Telegram API type: BackgroundTypeChatTheme
@@ -2497,7 +2450,6 @@ module Telegram
     # Name of the chat theme, which is usually an emoji
     @[JSON::Field(key: "theme_name")]
     @theme_name : String
-
   end
 
   # Telegram API type: ChatBackground
@@ -2508,7 +2460,6 @@ module Telegram
     # Type of the background
     @[JSON::Field(key: "type")]
     @type : BackgroundType
-
   end
 
   # Telegram API type: ForumTopicCreated
@@ -2527,7 +2478,6 @@ module Telegram
     # Optional. Unique identifier of the custom emoji shown as the topic icon
     @[JSON::Field(key: "icon_custom_emoji_id")]
     @icon_custom_emoji_id : String?
-
   end
 
   # Telegram API type: ForumTopicClosed
@@ -2549,7 +2499,6 @@ module Telegram
     # Optional. New identifier of the custom emoji shown as the topic icon, if it was edited; an empty string if the icon was removed
     @[JSON::Field(key: "icon_custom_emoji_id")]
     @icon_custom_emoji_id : String?
-
   end
 
   # Telegram API type: ForumTopicReopened
@@ -2597,7 +2546,6 @@ module Telegram
     # Optional. Available sizes of the chat photo, if the photo was requested by the bot
     @[JSON::Field(key: "photo")]
     @photo : Array(PhotoSize)?
-
   end
 
   # Telegram API type: UsersShared
@@ -2612,7 +2560,6 @@ module Telegram
     # Information about users shared with the bot.
     @[JSON::Field(key: "users")]
     @users : Array(SharedUser)
-
   end
 
   # Telegram API type: ChatShared
@@ -2639,7 +2586,6 @@ module Telegram
     # Optional. Available sizes of the chat photo, if the photo was requested by the bot
     @[JSON::Field(key: "photo")]
     @photo : Array(PhotoSize)?
-
   end
 
   # Telegram API type: WriteAccessAllowed
@@ -2658,7 +2604,6 @@ module Telegram
     # Optional. True, if the access was granted when the bot was added to the attachment or side menu
     @[JSON::Field(key: "from_attachment_menu")]
     @from_attachment_menu : Bool?
-
   end
 
   # Telegram API type: VideoChatScheduled
@@ -2669,7 +2614,6 @@ module Telegram
     # Point in time (Unix timestamp) when the video chat is supposed to be started by a chat administrator
     @[JSON::Field(key: "start_date")]
     @start_date : Int64
-
   end
 
   # Telegram API type: VideoChatStarted
@@ -2687,7 +2631,6 @@ module Telegram
     # Video chat duration in seconds
     @[JSON::Field(key: "duration")]
     @duration : Int64
-
   end
 
   # Telegram API type: VideoChatParticipantsInvited
@@ -2698,7 +2641,6 @@ module Telegram
     # New members that were invited to the video chat
     @[JSON::Field(key: "users")]
     @users : Array(User)
-
   end
 
   # Telegram API type: PaidMessagePriceChanged
@@ -2709,7 +2651,6 @@ module Telegram
     # The new number of Telegram Stars that must be paid by non-administrator users of the supergroup chat for each sent message
     @[JSON::Field(key: "paid_message_star_count")]
     @paid_message_star_count : Int64
-
   end
 
   # Telegram API type: DirectMessagePriceChanged
@@ -2724,7 +2665,6 @@ module Telegram
     # Optional. The new number of Telegram Stars that must be paid by users for each direct message sent to the channel. Does not apply to users who have been exempted by administrators. Defaults to 0.
     @[JSON::Field(key: "direct_message_star_count")]
     @direct_message_star_count : Int64?
-
   end
 
   # Telegram API type: SuggestedPostApproved
@@ -2743,7 +2683,6 @@ module Telegram
     # Optional. Amount paid for the post
     @[JSON::Field(key: "price")]
     @price : SuggestedPostPrice?
-
   end
 
   # Telegram API type: SuggestedPostApprovalFailed
@@ -2758,7 +2697,6 @@ module Telegram
     # Optional. Message containing the suggested post whose approval has failed. Note that the Message object in this field will not contain the reply_to_message field even if it itself is a reply.
     @[JSON::Field(key: "suggested_post_message")]
     @suggested_post_message : Message?
-
   end
 
   # Telegram API type: SuggestedPostDeclined
@@ -2773,7 +2711,6 @@ module Telegram
     # Optional. Comment with which the post was declined
     @[JSON::Field(key: "comment")]
     @comment : String?
-
   end
 
   # Telegram API type: SuggestedPostPaid
@@ -2796,7 +2733,6 @@ module Telegram
     # Optional. The amount of Telegram Stars that was received by the channel; for payments in Telegram Stars only
     @[JSON::Field(key: "star_amount")]
     @star_amount : StarAmount?
-
   end
 
   # Telegram API type: SuggestedPostRefunded
@@ -2811,7 +2747,6 @@ module Telegram
     # Optional. Message containing the suggested post. Note that the Message object in this field will not contain the reply_to_message field even if it itself is a reply.
     @[JSON::Field(key: "suggested_post_message")]
     @suggested_post_message : Message?
-
   end
 
   # Telegram API type: GiveawayCreated
@@ -2822,7 +2757,6 @@ module Telegram
     # Optional. The number of Telegram Stars to be split between giveaway winners; for Telegram Star giveaways only
     @[JSON::Field(key: "prize_star_count")]
     @prize_star_count : Int64?
-
   end
 
   # Telegram API type: Giveaway
@@ -2865,7 +2799,6 @@ module Telegram
     # Optional. The number of months the Telegram Premium subscription won from the giveaway will be active for; for Telegram Premium giveaways only
     @[JSON::Field(key: "premium_subscription_month_count")]
     @premium_subscription_month_count : Int64?
-
   end
 
   # Telegram API type: GiveawayWinners
@@ -2920,7 +2853,6 @@ module Telegram
     # Optional. Description of additional giveaway prize
     @[JSON::Field(key: "prize_description")]
     @prize_description : String?
-
   end
 
   # Telegram API type: GiveawayCompleted
@@ -2943,7 +2875,6 @@ module Telegram
     # Optional. True, if the giveaway is a Telegram Star giveaway. Otherwise, currently, the giveaway is a Telegram Premium giveaway.
     @[JSON::Field(key: "is_star_giveaway")]
     @is_star_giveaway : Bool?
-
   end
 
   # Telegram API type: LinkPreviewOptions
@@ -2970,7 +2901,6 @@ module Telegram
     # Optional. True, if the link preview must be shown above the message text; otherwise, the link preview will be shown below the message text
     @[JSON::Field(key: "show_above_text")]
     @show_above_text : Bool?
-
   end
 
   # Telegram API type: SuggestedPostPrice
@@ -2985,7 +2915,6 @@ module Telegram
     # The amount of the currency that will be paid for the post in the smallest units of the currency, i.e. Telegram Stars or nanotoncoins. Currently, price in Telegram Stars must be between 5 and 100000, and price in nanotoncoins must be between 10000000 and 10000000000000.
     @[JSON::Field(key: "amount")]
     @amount : Int64
-
   end
 
   # Telegram API type: SuggestedPostInfo
@@ -3004,7 +2933,6 @@ module Telegram
     # Optional. Proposed send date of the post. If the field is omitted, then the post can be published at any time within 30 days at the sole discretion of the user or administrator who approves it.
     @[JSON::Field(key: "send_date")]
     @send_date : Int64?
-
   end
 
   # Telegram API type: SuggestedPostParameters
@@ -3019,7 +2947,6 @@ module Telegram
     # Optional. Proposed send date of the post. If specified, then the date must be between 300 second and 2678400 seconds (30 days) in the future. If the field is omitted, then the post can be published at any time within 30 days at the sole discretion of the user who approves it.
     @[JSON::Field(key: "send_date")]
     @send_date : Int64?
-
   end
 
   # Telegram API type: DirectMessagesTopic
@@ -3034,7 +2961,6 @@ module Telegram
     # Optional. Information about the user that created the topic. Currently, it is always present
     @[JSON::Field(key: "user")]
     @user : User?
-
   end
 
   # Telegram API type: UserProfilePhotos
@@ -3049,7 +2975,6 @@ module Telegram
     # Requested profile pictures (in up to 4 sizes each)
     @[JSON::Field(key: "photos")]
     @photos : Array(Array(PhotoSize))
-
   end
 
   # Telegram API type: File
@@ -3072,7 +2997,6 @@ module Telegram
     # Optional. File path. Use https://api.telegram.org/file/bot<token>/<file_path> to get the file.
     @[JSON::Field(key: "file_path")]
     @file_path : String?
-
   end
 
   # Telegram API type: WebAppInfo
@@ -3083,7 +3007,6 @@ module Telegram
     # An HTTPS URL of a Web App to be opened with additional data as specified in Initializing Web Apps
     @[JSON::Field(key: "url")]
     @url : String
-
   end
 
   # Telegram API type: ReplyKeyboardMarkup
@@ -3114,7 +3037,6 @@ module Telegram
     # Optional. Use this parameter if you want to show the keyboard to specific users only. Targets: 1) users that are @mentioned in the text of the Message object; 2) if the bot's message is a reply to a message in the same chat and forum topic, sender of the original message. Example: A user requests to change the bot's language, bot replies to the request with a keyboard to select the new language. Other users in the group don't see the keyboard.
     @[JSON::Field(key: "selective")]
     @selective : Bool?
-
   end
 
   # Telegram API type: KeyboardButton
@@ -3150,7 +3072,6 @@ module Telegram
     # Optional. If specified, the described Web App will be launched when the button is pressed. The Web App will be able to send a "web_app_data" service message. Available in private chats only.
     @[JSON::Field(key: "web_app")]
     @web_app : WebAppInfo?
-
   end
 
   # Telegram API type: KeyboardButtonRequestUsers
@@ -3185,7 +3106,6 @@ module Telegram
     # Optional. Pass True to request the users' photos
     @[JSON::Field(key: "request_photo")]
     @request_photo : Bool?
-
   end
 
   # Telegram API type: KeyboardButtonRequestChat
@@ -3236,7 +3156,6 @@ module Telegram
     # Optional. Pass True to request the chat's photo
     @[JSON::Field(key: "request_photo")]
     @request_photo : Bool?
-
   end
 
   # Telegram API type: KeyboardButtonPollType
@@ -3247,7 +3166,6 @@ module Telegram
     # Optional. If quiz is passed, the user will be allowed to create only polls in the quiz mode. If regular is passed, only regular polls will be allowed. Otherwise, the user will be allowed to create a poll of any type.
     @[JSON::Field(key: "type")]
     @type : String?
-
   end
 
   # Telegram API type: ReplyKeyboardRemove
@@ -3262,7 +3180,6 @@ module Telegram
     # Optional. Use this parameter if you want to remove the keyboard for specific users only. Targets: 1) users that are @mentioned in the text of the Message object; 2) if the bot's message is a reply to a message in the same chat and forum topic, sender of the original message. Example: A user votes in a poll, bot returns confirmation message in reply to the vote and removes the keyboard for that user, while still showing the keyboard with poll options to users who haven't voted yet.
     @[JSON::Field(key: "selective")]
     @selective : Bool?
-
   end
 
   # Telegram API type: InlineKeyboardMarkup
@@ -3273,7 +3190,6 @@ module Telegram
     # Array of button rows, each represented by an Array of InlineKeyboardButton objects
     @[JSON::Field(key: "inline_keyboard")]
     @inline_keyboard : Array(Array(InlineKeyboardButton))
-
   end
 
   # Telegram API type: InlineKeyboardButton
@@ -3324,7 +3240,6 @@ module Telegram
     # Optional. Specify True, to send a Pay button. Substrings "⭐" and "XTR" in the buttons's text will be replaced with a Telegram Star icon. NOTE: This type of button must always be the first button in the first row and can only be used in invoice messages.
     @[JSON::Field(key: "pay")]
     @pay : Bool?
-
   end
 
   # Telegram API type: LoginUrl
@@ -3348,7 +3263,6 @@ module Telegram
     # Optional. Pass True to request the permission for your bot to send messages to the user.
     @[JSON::Field(key: "request_write_access")]
     @request_write_access : Bool?
-
   end
 
   # Telegram API type: SwitchInlineQueryChosenChat
@@ -3375,7 +3289,6 @@ module Telegram
     # Optional. True, if channel chats can be chosen
     @[JSON::Field(key: "allow_channel_chats")]
     @allow_channel_chats : Bool?
-
   end
 
   # Telegram API type: CopyTextButton
@@ -3386,7 +3299,6 @@ module Telegram
     # The text to be copied to the clipboard; 1-256 characters
     @[JSON::Field(key: "text")]
     @text : String
-
   end
 
   # Telegram API type: CallbackQuery
@@ -3429,7 +3341,7 @@ module Telegram
       message : MaybeInaccessibleMessage? = nil,
       inline_message_id : String? = nil,
       data : String? = nil,
-      game_short_name : String? = nil
+      game_short_name : String? = nil,
     )
       @id = id
       @from = from
@@ -3457,7 +3369,6 @@ module Telegram
     # Optional. Use this parameter if you want to force reply from specific users only. Targets: 1) users that are @mentioned in the text of the Message object; 2) if the bot's message is a reply to a message in the same chat and forum topic, sender of the original message.
     @[JSON::Field(key: "selective")]
     @selective : Bool?
-
   end
 
   # Telegram API type: ChatPhoto
@@ -3480,7 +3391,6 @@ module Telegram
     # Unique file identifier of big (640x640) chat photo, which is supposed to be the same over time and for different bots. Can't be used to download or reuse the file.
     @[JSON::Field(key: "big_file_unique_id")]
     @big_file_unique_id : String
-
   end
 
   # Telegram API type: ChatInviteLink
@@ -3531,7 +3441,6 @@ module Telegram
     # Optional. The amount of Telegram Stars a user must pay initially and after each subsequent subscription period to be a member of the chat using the link
     @[JSON::Field(key: "subscription_price")]
     @subscription_price : Int64?
-
   end
 
   # Telegram API type: ChatAdministratorRights
@@ -3602,7 +3511,6 @@ module Telegram
     # Optional. True, if the administrator can manage direct messages of the channel and decline suggested posts; for channels only
     @[JSON::Field(key: "can_manage_direct_messages")]
     @can_manage_direct_messages : Bool?
-
   end
 
   # Telegram API type: ChatMemberUpdated
@@ -3641,7 +3549,6 @@ module Telegram
     # Optional. True, if the user joined the chat via a chat folder invite link
     @[JSON::Field(key: "via_chat_folder_invite_link")]
     @via_chat_folder_invite_link : Bool?
-
   end
 
   # Telegram API type: ChatMember
@@ -3677,7 +3584,6 @@ module Telegram
     # Optional. Custom title for this user
     @[JSON::Field(key: "custom_title")]
     @custom_title : String?
-
   end
 
   # Telegram API type: ChatMemberAdministrator
@@ -3764,7 +3670,6 @@ module Telegram
     # Optional. Custom title for this user
     @[JSON::Field(key: "custom_title")]
     @custom_title : String?
-
   end
 
   # Telegram API type: ChatMemberMember
@@ -3783,7 +3688,6 @@ module Telegram
     # Optional. Date when the user's subscription will expire; Unix time
     @[JSON::Field(key: "until_date")]
     @until_date : Int64?
-
   end
 
   # Telegram API type: ChatMemberRestricted
@@ -3862,7 +3766,6 @@ module Telegram
     # Date when restrictions will be lifted for this user; Unix time. If 0, then the user is restricted forever
     @[JSON::Field(key: "until_date")]
     @until_date : Int64
-
   end
 
   # Telegram API type: ChatMemberLeft
@@ -3877,7 +3780,6 @@ module Telegram
     # Information about the user
     @[JSON::Field(key: "user")]
     @user : User
-
   end
 
   # Telegram API type: ChatMemberBanned
@@ -3896,7 +3798,6 @@ module Telegram
     # Date when restrictions will be lifted for this user; Unix time. If 0, then the user is banned forever
     @[JSON::Field(key: "until_date")]
     @until_date : Int64
-
   end
 
   # Telegram API type: ChatJoinRequest
@@ -3927,7 +3828,6 @@ module Telegram
     # Optional. Chat invite link that was used by the user to send the join request
     @[JSON::Field(key: "invite_link")]
     @invite_link : ChatInviteLink?
-
   end
 
   # Telegram API type: ChatPermissions
@@ -3990,7 +3890,6 @@ module Telegram
     # Optional. True, if the user is allowed to create forum topics. If omitted defaults to the value of can_pin_messages
     @[JSON::Field(key: "can_manage_topics")]
     @can_manage_topics : Bool?
-
   end
 
   # Telegram API type: Birthdate
@@ -4009,7 +3908,6 @@ module Telegram
     # Optional. Year of the user's birth
     @[JSON::Field(key: "year")]
     @year : Int64?
-
   end
 
   # Telegram API type: BusinessIntro
@@ -4028,7 +3926,6 @@ module Telegram
     # Optional. Sticker of the business intro
     @[JSON::Field(key: "sticker")]
     @sticker : Sticker?
-
   end
 
   # Telegram API type: BusinessLocation
@@ -4043,7 +3940,6 @@ module Telegram
     # Optional. Location of the business
     @[JSON::Field(key: "location")]
     @location : Location?
-
   end
 
   # Telegram API type: BusinessOpeningHoursInterval
@@ -4058,7 +3954,6 @@ module Telegram
     # The minute's sequence number in a week, starting on Monday, marking the end of the time interval during which the business is open; 0 - 8 * 24 * 60
     @[JSON::Field(key: "closing_minute")]
     @closing_minute : Int64
-
   end
 
   # Telegram API type: BusinessOpeningHours
@@ -4073,7 +3968,6 @@ module Telegram
     # List of time intervals describing business opening hours
     @[JSON::Field(key: "opening_hours")]
     @opening_hours : Array(BusinessOpeningHoursInterval)
-
   end
 
   # Telegram API type: StoryAreaPosition
@@ -4104,7 +3998,6 @@ module Telegram
     # The radius of the rectangle corner rounding, as a percentage of the media width
     @[JSON::Field(key: "corner_radius_percentage")]
     @corner_radius_percentage : Float64
-
   end
 
   # Telegram API type: LocationAddress
@@ -4127,7 +4020,6 @@ module Telegram
     # Optional. Street address of the location
     @[JSON::Field(key: "street")]
     @street : String?
-
   end
 
   # Telegram API type: StoryAreaType
@@ -4162,7 +4054,6 @@ module Telegram
     # Optional. Address of the location
     @[JSON::Field(key: "address")]
     @address : LocationAddress?
-
   end
 
   # Telegram API type: StoryAreaTypeSuggestedReaction
@@ -4185,7 +4076,6 @@ module Telegram
     # Optional. Pass True if reaction area corner is flipped
     @[JSON::Field(key: "is_flipped")]
     @is_flipped : Bool?
-
   end
 
   # Telegram API type: StoryAreaTypeLink
@@ -4200,7 +4090,6 @@ module Telegram
     # HTTP or tg:// URL to be opened when the area is clicked
     @[JSON::Field(key: "url")]
     @url : String
-
   end
 
   # Telegram API type: StoryAreaTypeWeather
@@ -4223,7 +4112,6 @@ module Telegram
     # A color of the area background in the ARGB format
     @[JSON::Field(key: "background_color")]
     @background_color : Int64
-
   end
 
   # Telegram API type: StoryAreaTypeUniqueGift
@@ -4238,7 +4126,6 @@ module Telegram
     # Unique name of the gift
     @[JSON::Field(key: "name")]
     @name : String
-
   end
 
   # Telegram API type: StoryArea
@@ -4253,7 +4140,6 @@ module Telegram
     # Type of the area
     @[JSON::Field(key: "type")]
     @type : StoryAreaType
-
   end
 
   # Telegram API type: ChatLocation
@@ -4268,7 +4154,6 @@ module Telegram
     # Location address; 1-64 characters, as defined by the chat owner
     @[JSON::Field(key: "address")]
     @address : String
-
   end
 
   # Telegram API type: ReactionType
@@ -4293,7 +4178,6 @@ module Telegram
     # Reaction emoji. Currently, it can be one of "❤", "👍", "👎", "🔥", "🥰", "👏", "😁", "🤔", "🤯", "😱", "🤬", "😢", "🎉", "🤩", "🤮", "💩", "🙏", "👌", "🕊", "🤡", "🥱", "🥴", "😍", "🐳", "❤‍🔥", "🌚", "🌭", "💯", "🤣", "⚡", "🍌", "🏆", "💔", "🤨", "😐", "🍓", "🍾", "💋", "🖕", "😈", "😴", "😭", "🤓", "👻", "👨‍💻", "👀", "🎃", "🙈", "😇", "😨", "🤝", "✍", "🤗", "🫡", "🎅", "🎄", "☃", "💅", "🤪", "🗿", "🆒", "💘", "🙉", "🦄", "😘", "💊", "🙊", "😎", "👾", "🤷‍♂", "🤷", "🤷‍♀", "😡"
     @[JSON::Field(key: "emoji")]
     @emoji : String
-
   end
 
   # Telegram API type: ReactionTypeCustomEmoji
@@ -4308,7 +4192,6 @@ module Telegram
     # Custom emoji identifier
     @[JSON::Field(key: "custom_emoji_id")]
     @custom_emoji_id : String
-
   end
 
   # Telegram API type: ReactionTypePaid
@@ -4319,7 +4202,6 @@ module Telegram
     # Type of the reaction, always "paid"
     @[JSON::Field(key: "type")]
     @type : String
-
   end
 
   # Telegram API type: ReactionCount
@@ -4334,7 +4216,6 @@ module Telegram
     # Number of times the reaction was added
     @[JSON::Field(key: "total_count")]
     @total_count : Int64
-
   end
 
   # Telegram API type: MessageReactionUpdated
@@ -4369,7 +4250,6 @@ module Telegram
     # Optional. The chat on behalf of which the reaction was changed, if the user is anonymous
     @[JSON::Field(key: "actor_chat")]
     @actor_chat : Chat?
-
   end
 
   # Telegram API type: MessageReactionCountUpdated
@@ -4392,7 +4272,6 @@ module Telegram
     # List of reactions that are present on the message
     @[JSON::Field(key: "reactions")]
     @reactions : Array(ReactionCount)
-
   end
 
   # Telegram API type: ForumTopic
@@ -4415,7 +4294,6 @@ module Telegram
     # Optional. Unique identifier of the custom emoji shown as the topic icon
     @[JSON::Field(key: "icon_custom_emoji_id")]
     @icon_custom_emoji_id : String?
-
   end
 
   # Telegram API type: Gift
@@ -4450,7 +4328,6 @@ module Telegram
     # Optional. Information about the chat that published the gift
     @[JSON::Field(key: "publisher_chat")]
     @publisher_chat : Chat?
-
   end
 
   # Telegram API type: Gifts
@@ -4461,7 +4338,6 @@ module Telegram
     # The list of gifts
     @[JSON::Field(key: "gifts")]
     @gifts : Array(Gift)
-
   end
 
   # Telegram API type: UniqueGiftModel
@@ -4480,7 +4356,6 @@ module Telegram
     # The number of unique gifts that receive this model for every 1000 gifts upgraded
     @[JSON::Field(key: "rarity_per_mille")]
     @rarity_per_mille : Int64
-
   end
 
   # Telegram API type: UniqueGiftSymbol
@@ -4499,7 +4374,6 @@ module Telegram
     # The number of unique gifts that receive this model for every 1000 gifts upgraded
     @[JSON::Field(key: "rarity_per_mille")]
     @rarity_per_mille : Int64
-
   end
 
   # Telegram API type: UniqueGiftBackdropColors
@@ -4522,7 +4396,6 @@ module Telegram
     # The color for the text on the backdrop in RGB format
     @[JSON::Field(key: "text_color")]
     @text_color : Int64
-
   end
 
   # Telegram API type: UniqueGiftBackdrop
@@ -4541,7 +4414,6 @@ module Telegram
     # The number of unique gifts that receive this backdrop for every 1000 gifts upgraded
     @[JSON::Field(key: "rarity_per_mille")]
     @rarity_per_mille : Int64
-
   end
 
   # Telegram API type: UniqueGift
@@ -4576,7 +4448,6 @@ module Telegram
     # Optional. Information about the chat that published the gift
     @[JSON::Field(key: "publisher_chat")]
     @publisher_chat : Chat?
-
   end
 
   # Telegram API type: GiftInfo
@@ -4615,7 +4486,6 @@ module Telegram
     # Optional. True, if the sender and gift text are shown only to the gift receiver; otherwise, everyone will be able to see them
     @[JSON::Field(key: "is_private")]
     @is_private : Bool?
-
   end
 
   # Telegram API type: UniqueGiftInfo
@@ -4646,7 +4516,6 @@ module Telegram
     # Optional. Point in time (Unix timestamp) when the gift can be transferred. If it is in the past, then the gift can be transferred now
     @[JSON::Field(key: "next_transfer_date")]
     @next_transfer_date : Int64?
-
   end
 
   # Telegram API type: OwnedGift
@@ -4714,7 +4583,6 @@ module Telegram
     # Optional. Number of Telegram Stars that were paid by the sender for the ability to upgrade the gift
     @[JSON::Field(key: "prepaid_upgrade_star_count")]
     @prepaid_upgrade_star_count : Int64?
-
   end
 
   # Telegram API type: OwnedGiftUnique
@@ -4757,7 +4625,6 @@ module Telegram
     # Optional. Point in time (Unix timestamp) when the gift can be transferred. If it is in the past, then the gift can be transferred now
     @[JSON::Field(key: "next_transfer_date")]
     @next_transfer_date : Int64?
-
   end
 
   # Telegram API type: OwnedGifts
@@ -4776,7 +4643,6 @@ module Telegram
     # Optional. Offset for the next request. If empty, then there are no more results
     @[JSON::Field(key: "next_offset")]
     @next_offset : String?
-
   end
 
   # Telegram API type: AcceptedGiftTypes
@@ -4799,7 +4665,6 @@ module Telegram
     # True, if a Telegram Premium subscription is accepted
     @[JSON::Field(key: "premium_subscription")]
     @premium_subscription : Bool
-
   end
 
   # Telegram API type: StarAmount
@@ -4814,7 +4679,6 @@ module Telegram
     # Optional. The number of 1/1000000000 shares of Telegram Stars; from -999999999 to 999999999; can be negative if and only if amount is non-positive
     @[JSON::Field(key: "nanostar_amount")]
     @nanostar_amount : Int64?
-
   end
 
   # Telegram API type: BotCommand
@@ -4832,7 +4696,7 @@ module Telegram
 
     def initialize(
       command : String,
-      description : String
+      description : String,
     )
       @command = command
       @description = description
@@ -4861,7 +4725,6 @@ module Telegram
     # Scope type, must be default
     @[JSON::Field(key: "type")]
     @type : String
-
   end
 
   # Telegram API type: BotCommandScopeAllPrivateChats
@@ -4872,7 +4735,6 @@ module Telegram
     # Scope type, must be all_private_chats
     @[JSON::Field(key: "type")]
     @type : String
-
   end
 
   # Telegram API type: BotCommandScopeAllGroupChats
@@ -4883,7 +4745,6 @@ module Telegram
     # Scope type, must be all_group_chats
     @[JSON::Field(key: "type")]
     @type : String
-
   end
 
   # Telegram API type: BotCommandScopeAllChatAdministrators
@@ -4894,7 +4755,6 @@ module Telegram
     # Scope type, must be all_chat_administrators
     @[JSON::Field(key: "type")]
     @type : String
-
   end
 
   # Telegram API type: BotCommandScopeChat
@@ -4909,7 +4769,6 @@ module Telegram
     # Unique identifier for the target chat or username of the target supergroup (in the format @supergroupusername). Channel direct messages chats and channel chats aren't supported.
     @[JSON::Field(key: "chat_id")]
     @chat_id : Int32 | Int64 | String
-
   end
 
   # Telegram API type: BotCommandScopeChatAdministrators
@@ -4924,7 +4783,6 @@ module Telegram
     # Unique identifier for the target chat or username of the target supergroup (in the format @supergroupusername). Channel direct messages chats and channel chats aren't supported.
     @[JSON::Field(key: "chat_id")]
     @chat_id : Int32 | Int64 | String
-
   end
 
   # Telegram API type: BotCommandScopeChatMember
@@ -4943,7 +4801,6 @@ module Telegram
     # Unique identifier of the target user
     @[JSON::Field(key: "user_id")]
     @user_id : Int32 | Int64
-
   end
 
   # Telegram API type: BotName
@@ -4954,7 +4811,6 @@ module Telegram
     # The bot's name
     @[JSON::Field(key: "name")]
     @name : String
-
   end
 
   # Telegram API type: BotDescription
@@ -4965,7 +4821,6 @@ module Telegram
     # The bot's description
     @[JSON::Field(key: "description")]
     @description : String
-
   end
 
   # Telegram API type: BotShortDescription
@@ -4976,7 +4831,6 @@ module Telegram
     # The bot's short description
     @[JSON::Field(key: "short_description")]
     @short_description : String
-
   end
 
   # Telegram API type: MenuButton
@@ -4998,7 +4852,6 @@ module Telegram
     # Type of the button, must be commands
     @[JSON::Field(key: "type")]
     @type : String
-
   end
 
   # Telegram API type: MenuButtonWebApp
@@ -5017,7 +4870,6 @@ module Telegram
     # Description of the Web App that will be launched when the user presses the button. The Web App will be able to send an arbitrary message on behalf of the user using the method answerWebAppQuery. Alternatively, a t.me link to a Web App of the bot can be specified in the object instead of the Web App's URL, in which case the Web App will be opened as if the user pressed the link.
     @[JSON::Field(key: "web_app")]
     @web_app : WebAppInfo
-
   end
 
   # Telegram API type: MenuButtonDefault
@@ -5028,7 +4880,6 @@ module Telegram
     # Type of the button, must be default
     @[JSON::Field(key: "type")]
     @type : String
-
   end
 
   # Telegram API type: ChatBoostSource
@@ -5053,7 +4904,6 @@ module Telegram
     # User that boosted the chat
     @[JSON::Field(key: "user")]
     @user : User
-
   end
 
   # Telegram API type: ChatBoostSourceGiftCode
@@ -5068,7 +4918,6 @@ module Telegram
     # User for which the gift code was created
     @[JSON::Field(key: "user")]
     @user : User
-
   end
 
   # Telegram API type: ChatBoostSourceGiveaway
@@ -5095,7 +4944,6 @@ module Telegram
     # Optional. True, if the giveaway was completed, but there was no user to win the prize
     @[JSON::Field(key: "is_unclaimed")]
     @is_unclaimed : Bool?
-
   end
 
   # Telegram API type: ChatBoost
@@ -5118,7 +4966,6 @@ module Telegram
     # Source of the added boost
     @[JSON::Field(key: "source")]
     @source : ChatBoostSource
-
   end
 
   # Telegram API type: ChatBoostUpdated
@@ -5133,7 +4980,6 @@ module Telegram
     # Information about the chat boost
     @[JSON::Field(key: "boost")]
     @boost : ChatBoost
-
   end
 
   # Telegram API type: ChatBoostRemoved
@@ -5156,7 +5002,6 @@ module Telegram
     # Source of the removed boost
     @[JSON::Field(key: "source")]
     @source : ChatBoostSource
-
   end
 
   # Telegram API type: UserChatBoosts
@@ -5167,7 +5012,6 @@ module Telegram
     # The list of boosts added to the chat by the user
     @[JSON::Field(key: "boosts")]
     @boosts : Array(ChatBoost)
-
   end
 
   # Telegram API type: BusinessBotRights
@@ -5230,7 +5074,6 @@ module Telegram
     # Optional. True, if the bot can post, edit and delete stories on behalf of the business account
     @[JSON::Field(key: "can_manage_stories")]
     @can_manage_stories : Bool?
-
   end
 
   # Telegram API type: BusinessConnection
@@ -5261,7 +5104,6 @@ module Telegram
     # Optional. Rights of the business bot
     @[JSON::Field(key: "rights")]
     @rights : BusinessBotRights?
-
   end
 
   # Telegram API type: BusinessMessagesDeleted
@@ -5280,7 +5122,6 @@ module Telegram
     # The list of identifiers of deleted messages in the chat of the business account
     @[JSON::Field(key: "message_ids")]
     @message_ids : Array(Int64)
-
   end
 
   # Telegram API type: ResponseParameters
@@ -5295,7 +5136,6 @@ module Telegram
     # Optional. In case of exceeding flood control, the number of seconds left to wait before the request can be repeated
     @[JSON::Field(key: "retry_after")]
     @retry_after : Int64?
-
   end
 
   # Telegram API type: InputMedia
@@ -5312,7 +5152,7 @@ module Telegram
 
   # Telegram API type: InputMediaPhoto
   # Represents a photo to be sent.
-  record InputMediaPhoto, type : String, media : String, caption : String? = nil, parse_mode : String? = nil, caption_entities : Array(MessageEntity)? = nil, show_caption_above_media : Bool? = nil, has_spoiler : Bool? = nil do
+  record InputMediaPhoto, type : String, media : String | InputFile, caption : String? = nil, parse_mode : String? = nil, caption_entities : Array(MessageEntity)? = nil, show_caption_above_media : Bool? = nil, has_spoiler : Bool? = nil do
     include JSON::Serializable
 
     # Type of the result, must be photo
@@ -5320,8 +5160,8 @@ module Telegram
     @type : String
 
     # File to send. Pass a file_id to send a file that exists on the Telegram servers (recommended), pass an HTTP URL for Telegram to get a file from the Internet, or pass "attach://<file_attach_name>" to upload a new one using multipart/form-data under <file_attach_name> name. More information on Sending Files: https://core.telegram.org/bots/api#sending-files
-    @[JSON::Field(key: "media")]
-    @media : String
+    @[JSON::Field(key: "media", converter: Telegram::InputFile::JSONConverter)]
+    @media : String | InputFile
 
     # Optional. Caption of the photo to be sent, 0-1024 characters after entities parsing
     @[JSON::Field(key: "caption")]
@@ -5342,12 +5182,11 @@ module Telegram
     # Optional. Pass True if the photo needs to be covered with a spoiler animation
     @[JSON::Field(key: "has_spoiler")]
     @has_spoiler : Bool?
-
   end
 
   # Telegram API type: InputMediaVideo
   # Represents a video to be sent.
-  record InputMediaVideo, type : String, media : String, thumbnail : String? = nil, cover : String? = nil, start_timestamp : Int64? = nil, caption : String? = nil, parse_mode : String? = nil, caption_entities : Array(MessageEntity)? = nil, show_caption_above_media : Bool? = nil, width : Int64? = nil, height : Int64? = nil, duration : Int64? = nil, supports_streaming : Bool? = nil, has_spoiler : Bool? = nil do
+  record InputMediaVideo, type : String, media : String | InputFile, thumbnail : (String | InputFile)? = nil, cover : String? = nil, start_timestamp : Int64? = nil, caption : String? = nil, parse_mode : String? = nil, caption_entities : Array(MessageEntity)? = nil, show_caption_above_media : Bool? = nil, width : Int64? = nil, height : Int64? = nil, duration : Int64? = nil, supports_streaming : Bool? = nil, has_spoiler : Bool? = nil do
     include JSON::Serializable
 
     # Type of the result, must be video
@@ -5355,12 +5194,12 @@ module Telegram
     @type : String
 
     # File to send. Pass a file_id to send a file that exists on the Telegram servers (recommended), pass an HTTP URL for Telegram to get a file from the Internet, or pass "attach://<file_attach_name>" to upload a new one using multipart/form-data under <file_attach_name> name. More information on Sending Files: https://core.telegram.org/bots/api#sending-files
-    @[JSON::Field(key: "media")]
-    @media : String
+    @[JSON::Field(key: "media", converter: Telegram::InputFile::JSONConverter)]
+    @media : String | InputFile
 
     # Optional. Thumbnail of the file sent; can be ignored if thumbnail generation for the file is supported server-side. The thumbnail should be in JPEG format and less than 200 kB in size. A thumbnail's width and height should not exceed 320. Ignored if the file is not uploaded using multipart/form-data. Thumbnails can't be reused and can be only uploaded as a new file, so you can pass "attach://<file_attach_name>" if the thumbnail was uploaded using multipart/form-data under <file_attach_name>. More information on Sending Files: https://core.telegram.org/bots/api#sending-files
-    @[JSON::Field(key: "thumbnail")]
-    @thumbnail : String?
+    @[JSON::Field(key: "thumbnail", converter: Telegram::InputFile::JSONConverter)]
+    @thumbnail : (String | InputFile)?
 
     # Optional. Cover for the video in the message. Pass a file_id to send a file that exists on the Telegram servers (recommended), pass an HTTP URL for Telegram to get a file from the Internet, or pass "attach://<file_attach_name>" to upload a new one using multipart/form-data under <file_attach_name> name. More information on Sending Files: https://core.telegram.org/bots/api#sending-files
     @[JSON::Field(key: "cover")]
@@ -5405,12 +5244,11 @@ module Telegram
     # Optional. Pass True if the video needs to be covered with a spoiler animation
     @[JSON::Field(key: "has_spoiler")]
     @has_spoiler : Bool?
-
   end
 
   # Telegram API type: InputMediaAnimation
   # Represents an animation file (GIF or H.264/MPEG-4 AVC video without sound) to be sent.
-  record InputMediaAnimation, type : String, media : String, thumbnail : String? = nil, caption : String? = nil, parse_mode : String? = nil, caption_entities : Array(MessageEntity)? = nil, show_caption_above_media : Bool? = nil, width : Int64? = nil, height : Int64? = nil, duration : Int64? = nil, has_spoiler : Bool? = nil do
+  record InputMediaAnimation, type : String, media : String | InputFile, thumbnail : (String | InputFile)? = nil, caption : String? = nil, parse_mode : String? = nil, caption_entities : Array(MessageEntity)? = nil, show_caption_above_media : Bool? = nil, width : Int64? = nil, height : Int64? = nil, duration : Int64? = nil, has_spoiler : Bool? = nil do
     include JSON::Serializable
 
     # Type of the result, must be animation
@@ -5418,12 +5256,12 @@ module Telegram
     @type : String
 
     # File to send. Pass a file_id to send a file that exists on the Telegram servers (recommended), pass an HTTP URL for Telegram to get a file from the Internet, or pass "attach://<file_attach_name>" to upload a new one using multipart/form-data under <file_attach_name> name. More information on Sending Files: https://core.telegram.org/bots/api#sending-files
-    @[JSON::Field(key: "media")]
-    @media : String
+    @[JSON::Field(key: "media", converter: Telegram::InputFile::JSONConverter)]
+    @media : String | InputFile
 
     # Optional. Thumbnail of the file sent; can be ignored if thumbnail generation for the file is supported server-side. The thumbnail should be in JPEG format and less than 200 kB in size. A thumbnail's width and height should not exceed 320. Ignored if the file is not uploaded using multipart/form-data. Thumbnails can't be reused and can be only uploaded as a new file, so you can pass "attach://<file_attach_name>" if the thumbnail was uploaded using multipart/form-data under <file_attach_name>. More information on Sending Files: https://core.telegram.org/bots/api#sending-files
-    @[JSON::Field(key: "thumbnail")]
-    @thumbnail : String?
+    @[JSON::Field(key: "thumbnail", converter: Telegram::InputFile::JSONConverter)]
+    @thumbnail : (String | InputFile)?
 
     # Optional. Caption of the animation to be sent, 0-1024 characters after entities parsing
     @[JSON::Field(key: "caption")]
@@ -5456,12 +5294,11 @@ module Telegram
     # Optional. Pass True if the animation needs to be covered with a spoiler animation
     @[JSON::Field(key: "has_spoiler")]
     @has_spoiler : Bool?
-
   end
 
   # Telegram API type: InputMediaAudio
   # Represents an audio file to be treated as music to be sent.
-  record InputMediaAudio, type : String, media : String, thumbnail : String? = nil, caption : String? = nil, parse_mode : String? = nil, caption_entities : Array(MessageEntity)? = nil, duration : Int64? = nil, performer : String? = nil, title : String? = nil do
+  record InputMediaAudio, type : String, media : String | InputFile, thumbnail : (String | InputFile)? = nil, caption : String? = nil, parse_mode : String? = nil, caption_entities : Array(MessageEntity)? = nil, duration : Int64? = nil, performer : String? = nil, title : String? = nil do
     include JSON::Serializable
 
     # Type of the result, must be audio
@@ -5469,12 +5306,12 @@ module Telegram
     @type : String
 
     # File to send. Pass a file_id to send a file that exists on the Telegram servers (recommended), pass an HTTP URL for Telegram to get a file from the Internet, or pass "attach://<file_attach_name>" to upload a new one using multipart/form-data under <file_attach_name> name. More information on Sending Files: https://core.telegram.org/bots/api#sending-files
-    @[JSON::Field(key: "media")]
-    @media : String
+    @[JSON::Field(key: "media", converter: Telegram::InputFile::JSONConverter)]
+    @media : String | InputFile
 
     # Optional. Thumbnail of the file sent; can be ignored if thumbnail generation for the file is supported server-side. The thumbnail should be in JPEG format and less than 200 kB in size. A thumbnail's width and height should not exceed 320. Ignored if the file is not uploaded using multipart/form-data. Thumbnails can't be reused and can be only uploaded as a new file, so you can pass "attach://<file_attach_name>" if the thumbnail was uploaded using multipart/form-data under <file_attach_name>. More information on Sending Files: https://core.telegram.org/bots/api#sending-files
-    @[JSON::Field(key: "thumbnail")]
-    @thumbnail : String?
+    @[JSON::Field(key: "thumbnail", converter: Telegram::InputFile::JSONConverter)]
+    @thumbnail : (String | InputFile)?
 
     # Optional. Caption of the audio to be sent, 0-1024 characters after entities parsing
     @[JSON::Field(key: "caption")]
@@ -5499,12 +5336,11 @@ module Telegram
     # Optional. Title of the audio
     @[JSON::Field(key: "title")]
     @title : String?
-
   end
 
   # Telegram API type: InputMediaDocument
   # Represents a general file to be sent.
-  record InputMediaDocument, type : String, media : String, thumbnail : String? = nil, caption : String? = nil, parse_mode : String? = nil, caption_entities : Array(MessageEntity)? = nil, disable_content_type_detection : Bool? = nil do
+  record InputMediaDocument, type : String, media : String | InputFile, thumbnail : (String | InputFile)? = nil, caption : String? = nil, parse_mode : String? = nil, caption_entities : Array(MessageEntity)? = nil, disable_content_type_detection : Bool? = nil do
     include JSON::Serializable
 
     # Type of the result, must be document
@@ -5512,12 +5348,12 @@ module Telegram
     @type : String
 
     # File to send. Pass a file_id to send a file that exists on the Telegram servers (recommended), pass an HTTP URL for Telegram to get a file from the Internet, or pass "attach://<file_attach_name>" to upload a new one using multipart/form-data under <file_attach_name> name. More information on Sending Files: https://core.telegram.org/bots/api#sending-files
-    @[JSON::Field(key: "media")]
-    @media : String
+    @[JSON::Field(key: "media", converter: Telegram::InputFile::JSONConverter)]
+    @media : String | InputFile
 
     # Optional. Thumbnail of the file sent; can be ignored if thumbnail generation for the file is supported server-side. The thumbnail should be in JPEG format and less than 200 kB in size. A thumbnail's width and height should not exceed 320. Ignored if the file is not uploaded using multipart/form-data. Thumbnails can't be reused and can be only uploaded as a new file, so you can pass "attach://<file_attach_name>" if the thumbnail was uploaded using multipart/form-data under <file_attach_name>. More information on Sending Files: https://core.telegram.org/bots/api#sending-files
-    @[JSON::Field(key: "thumbnail")]
-    @thumbnail : String?
+    @[JSON::Field(key: "thumbnail", converter: Telegram::InputFile::JSONConverter)]
+    @thumbnail : (String | InputFile)?
 
     # Optional. Caption of the document to be sent, 0-1024 characters after entities parsing
     @[JSON::Field(key: "caption")]
@@ -5534,7 +5370,6 @@ module Telegram
     # Optional. Disables automatic server-side content type detection for files uploaded using multipart/form-data. Always True, if the document is sent as part of an album.
     @[JSON::Field(key: "disable_content_type_detection")]
     @disable_content_type_detection : Bool?
-
   end
 
   # Telegram API type: InputPaidMedia
@@ -5558,7 +5393,6 @@ module Telegram
     # File to send. Pass a file_id to send a file that exists on the Telegram servers (recommended), pass an HTTP URL for Telegram to get a file from the Internet, or pass "attach://<file_attach_name>" to upload a new one using multipart/form-data under <file_attach_name> name. More information on Sending Files: https://core.telegram.org/bots/api#sending-files
     @[JSON::Field(key: "media")]
     @media : String
-
   end
 
   # Telegram API type: InputPaidMediaVideo
@@ -5601,7 +5435,6 @@ module Telegram
     # Optional. Pass True if the uploaded video is suitable for streaming
     @[JSON::Field(key: "supports_streaming")]
     @supports_streaming : Bool?
-
   end
 
   # Telegram API type: InputProfilePhoto
@@ -5625,7 +5458,6 @@ module Telegram
     # The static profile photo. Profile photos can't be reused and can only be uploaded as a new file, so you can pass "attach://<file_attach_name>" if the photo was uploaded using multipart/form-data under <file_attach_name>. More information on Sending Files: https://core.telegram.org/bots/api#sending-files
     @[JSON::Field(key: "photo")]
     @photo : String
-
   end
 
   # Telegram API type: InputProfilePhotoAnimated
@@ -5644,7 +5476,6 @@ module Telegram
     # Optional. Timestamp in seconds of the frame that will be used as the static profile photo. Defaults to 0.0.
     @[JSON::Field(key: "main_frame_timestamp")]
     @main_frame_timestamp : Float64?
-
   end
 
   # Telegram API type: InputStoryContent
@@ -5668,7 +5499,6 @@ module Telegram
     # The photo to post as a story. The photo must be of the size 1080x1920 and must not exceed 10 MB. The photo can't be reused and can only be uploaded as a new file, so you can pass "attach://<file_attach_name>" if the photo was uploaded using multipart/form-data under <file_attach_name>. More information on Sending Files: https://core.telegram.org/bots/api#sending-files
     @[JSON::Field(key: "photo")]
     @photo : String
-
   end
 
   # Telegram API type: InputStoryContentVideo
@@ -5695,7 +5525,6 @@ module Telegram
     # Optional. Pass True if the video has no sound
     @[JSON::Field(key: "is_animation")]
     @is_animation : Bool?
-
   end
 
   # Telegram API type: Sticker
@@ -5762,7 +5591,6 @@ module Telegram
     # Optional. File size in bytes
     @[JSON::Field(key: "file_size")]
     @file_size : Int64?
-
   end
 
   # Telegram API type: StickerSet
@@ -5789,7 +5617,6 @@ module Telegram
     # Optional. Sticker set thumbnail in the .WEBP, .TGS, or .WEBM format
     @[JSON::Field(key: "thumbnail")]
     @thumbnail : PhotoSize?
-
   end
 
   # Telegram API type: MaskPosition
@@ -5812,7 +5639,6 @@ module Telegram
     # Mask scaling coefficient. For example, 2.0 means double size.
     @[JSON::Field(key: "scale")]
     @scale : Float64
-
   end
 
   # Telegram API type: InputSticker
@@ -5839,7 +5665,6 @@ module Telegram
     # Optional. List of 0-20 search keywords for the sticker with total length of up to 64 characters. For "regular" and "custom_emoji" stickers only.
     @[JSON::Field(key: "keywords")]
     @keywords : Array(String)?
-
   end
 
   # Telegram API type: InlineQuery
@@ -5877,7 +5702,7 @@ module Telegram
       query : String,
       offset : String,
       chat_type : String? = nil,
-      location : Location? = nil
+      location : Location? = nil,
     )
       @id = id
       @from = from
@@ -5904,7 +5729,6 @@ module Telegram
     # Optional. Deep-linking parameter for the /start message sent to the bot when a user presses the button. 1-64 characters, only A-Z, a-z, 0-9, _ and - are allowed. Example: An inline bot that sends YouTube videos can ask the user to connect the bot to their YouTube account to adapt search results accordingly. To do this, it displays a 'Connect your YouTube account' button above the results, or even before showing any. The user presses the button, switches to a private chat with the bot and, in doing so, passes a start parameter that instructs the bot to return an OAuth link. Once done, the bot can offer a switch_inline button so that the user can easily return to the chat where they wanted to use the bot's inline capabilities.
     @[JSON::Field(key: "start_parameter")]
     @start_parameter : String?
-
   end
 
   # Telegram API type: InlineQueryResult
@@ -5979,7 +5803,6 @@ module Telegram
     # Optional. Thumbnail height
     @[JSON::Field(key: "thumbnail_height")]
     @thumbnail_height : Int64?
-
   end
 
   # Telegram API type: InlineQueryResultPhoto
@@ -6042,7 +5865,6 @@ module Telegram
     # Optional. Content of the message to be sent instead of the photo
     @[JSON::Field(key: "input_message_content")]
     @input_message_content : InputMessageContent?
-
   end
 
   # Telegram API type: InlineQueryResultGif
@@ -6109,7 +5931,6 @@ module Telegram
     # Optional. Content of the message to be sent instead of the GIF animation
     @[JSON::Field(key: "input_message_content")]
     @input_message_content : InputMessageContent?
-
   end
 
   # Telegram API type: InlineQueryResultMpeg4Gif
@@ -6176,7 +5997,6 @@ module Telegram
     # Optional. Content of the message to be sent instead of the video animation
     @[JSON::Field(key: "input_message_content")]
     @input_message_content : InputMessageContent?
-
   end
 
   # Telegram API type: InlineQueryResultVideo
@@ -6247,7 +6067,6 @@ module Telegram
     # Optional. Content of the message to be sent instead of the video. This field is required if InlineQueryResultVideo is used to send an HTML-page as a result (e.g., a YouTube video).
     @[JSON::Field(key: "input_message_content")]
     @input_message_content : InputMessageContent?
-
   end
 
   # Telegram API type: InlineQueryResultAudio
@@ -6298,7 +6117,6 @@ module Telegram
     # Optional. Content of the message to be sent instead of the audio
     @[JSON::Field(key: "input_message_content")]
     @input_message_content : InputMessageContent?
-
   end
 
   # Telegram API type: InlineQueryResultVoice
@@ -6345,7 +6163,6 @@ module Telegram
     # Optional. Content of the message to be sent instead of the voice recording
     @[JSON::Field(key: "input_message_content")]
     @input_message_content : InputMessageContent?
-
   end
 
   # Telegram API type: InlineQueryResultDocument
@@ -6408,7 +6225,6 @@ module Telegram
     # Optional. Thumbnail height
     @[JSON::Field(key: "thumbnail_height")]
     @thumbnail_height : Int64?
-
   end
 
   # Telegram API type: InlineQueryResultLocation
@@ -6471,7 +6287,6 @@ module Telegram
     # Optional. Thumbnail height
     @[JSON::Field(key: "thumbnail_height")]
     @thumbnail_height : Int64?
-
   end
 
   # Telegram API type: InlineQueryResultVenue
@@ -6538,7 +6353,6 @@ module Telegram
     # Optional. Thumbnail height
     @[JSON::Field(key: "thumbnail_height")]
     @thumbnail_height : Int64?
-
   end
 
   # Telegram API type: InlineQueryResultContact
@@ -6589,7 +6403,6 @@ module Telegram
     # Optional. Thumbnail height
     @[JSON::Field(key: "thumbnail_height")]
     @thumbnail_height : Int64?
-
   end
 
   # Telegram API type: InlineQueryResultGame
@@ -6612,7 +6425,6 @@ module Telegram
     # Optional. Inline keyboard attached to the message
     @[JSON::Field(key: "reply_markup")]
     @reply_markup : InlineKeyboardMarkup?
-
   end
 
   # Telegram API type: InlineQueryResultCachedPhoto
@@ -6663,7 +6475,6 @@ module Telegram
     # Optional. Content of the message to be sent instead of the photo
     @[JSON::Field(key: "input_message_content")]
     @input_message_content : InputMessageContent?
-
   end
 
   # Telegram API type: InlineQueryResultCachedGif
@@ -6710,7 +6521,6 @@ module Telegram
     # Optional. Content of the message to be sent instead of the GIF animation
     @[JSON::Field(key: "input_message_content")]
     @input_message_content : InputMessageContent?
-
   end
 
   # Telegram API type: InlineQueryResultCachedMpeg4Gif
@@ -6757,7 +6567,6 @@ module Telegram
     # Optional. Content of the message to be sent instead of the video animation
     @[JSON::Field(key: "input_message_content")]
     @input_message_content : InputMessageContent?
-
   end
 
   # Telegram API type: InlineQueryResultCachedSticker
@@ -6784,7 +6593,6 @@ module Telegram
     # Optional. Content of the message to be sent instead of the sticker
     @[JSON::Field(key: "input_message_content")]
     @input_message_content : InputMessageContent?
-
   end
 
   # Telegram API type: InlineQueryResultCachedDocument
@@ -6831,7 +6639,6 @@ module Telegram
     # Optional. Content of the message to be sent instead of the file
     @[JSON::Field(key: "input_message_content")]
     @input_message_content : InputMessageContent?
-
   end
 
   # Telegram API type: InlineQueryResultCachedVideo
@@ -6882,7 +6689,6 @@ module Telegram
     # Optional. Content of the message to be sent instead of the video
     @[JSON::Field(key: "input_message_content")]
     @input_message_content : InputMessageContent?
-
   end
 
   # Telegram API type: InlineQueryResultCachedVoice
@@ -6925,7 +6731,6 @@ module Telegram
     # Optional. Content of the message to be sent instead of the voice message
     @[JSON::Field(key: "input_message_content")]
     @input_message_content : InputMessageContent?
-
   end
 
   # Telegram API type: InlineQueryResultCachedAudio
@@ -6964,7 +6769,6 @@ module Telegram
     # Optional. Content of the message to be sent instead of the audio
     @[JSON::Field(key: "input_message_content")]
     @input_message_content : InputMessageContent?
-
   end
 
   # Telegram API type: InputMessageContent
@@ -6999,7 +6803,6 @@ module Telegram
     # Optional. Link preview generation options for the message
     @[JSON::Field(key: "link_preview_options")]
     @link_preview_options : LinkPreviewOptions?
-
   end
 
   # Telegram API type: InputLocationMessageContent
@@ -7030,7 +6833,6 @@ module Telegram
     # Optional. For live locations, a maximum distance for proximity alerts about approaching another chat member, in meters. Must be between 1 and 100000 if specified.
     @[JSON::Field(key: "proximity_alert_radius")]
     @proximity_alert_radius : Int64?
-
   end
 
   # Telegram API type: InputVenueMessageContent
@@ -7069,7 +6871,6 @@ module Telegram
     # Optional. Google Places type of the venue. (See supported types.)
     @[JSON::Field(key: "google_place_type")]
     @google_place_type : String?
-
   end
 
   # Telegram API type: InputContactMessageContent
@@ -7092,7 +6893,6 @@ module Telegram
     # Optional. Additional data about the contact in the form of a vCard, 0-2048 bytes
     @[JSON::Field(key: "vcard")]
     @vcard : String?
-
   end
 
   # Telegram API type: InputInvoiceMessageContent
@@ -7179,7 +6979,6 @@ module Telegram
     # Optional. Pass True if the final price depends on the shipping method. Ignored for payments in Telegram Stars.
     @[JSON::Field(key: "is_flexible")]
     @is_flexible : Bool?
-
   end
 
   # Telegram API type: ChosenInlineResult
@@ -7207,7 +7006,6 @@ module Telegram
     # Optional. Identifier of the sent inline message. Available only if there is an inline keyboard attached to the message. Will be also received in callback queries and can be used to edit the message.
     @[JSON::Field(key: "inline_message_id")]
     @inline_message_id : String?
-
   end
 
   # Telegram API type: SentWebAppMessage
@@ -7218,7 +7016,6 @@ module Telegram
     # Optional. Identifier of the sent inline message. Available only if there is an inline keyboard attached to the message.
     @[JSON::Field(key: "inline_message_id")]
     @inline_message_id : String?
-
   end
 
   # Telegram API type: PreparedInlineMessage
@@ -7233,7 +7030,6 @@ module Telegram
     # Expiration date of the prepared message, in Unix time. Expired prepared messages can no longer be used
     @[JSON::Field(key: "expiration_date")]
     @expiration_date : Int64
-
   end
 
   # Telegram API type: LabeledPrice
@@ -7248,7 +7044,6 @@ module Telegram
     # Price of the product in the smallest units of the currency (integer, not float/double). For example, for a price of US$ 1.45 pass amount = 145. See the exp parameter in currencies.json, it shows the number of digits past the decimal point for each currency (2 for the majority of currencies).
     @[JSON::Field(key: "amount")]
     @amount : Int64
-
   end
 
   # Telegram API type: Invoice
@@ -7281,7 +7076,7 @@ module Telegram
       description : String,
       start_parameter : String,
       currency : String,
-      total_amount : Int64
+      total_amount : Int64,
     )
       @title = title
       @description = description
@@ -7319,7 +7114,6 @@ module Telegram
     # Address post code
     @[JSON::Field(key: "post_code")]
     @post_code : String
-
   end
 
   # Telegram API type: OrderInfo
@@ -7342,7 +7136,6 @@ module Telegram
     # Optional. User shipping address
     @[JSON::Field(key: "shipping_address")]
     @shipping_address : ShippingAddress?
-
   end
 
   # Telegram API type: ShippingOption
@@ -7361,7 +7154,6 @@ module Telegram
     # List of price portions
     @[JSON::Field(key: "prices")]
     @prices : Array(LabeledPrice)
-
   end
 
   # Telegram API type: SuccessfulPayment
@@ -7419,7 +7211,7 @@ module Telegram
       is_recurring : Bool? = nil,
       is_first_recurring : Bool? = nil,
       shipping_option_id : String? = nil,
-      order_info : OrderInfo? = nil
+      order_info : OrderInfo? = nil,
     )
       @currency = currency
       @total_amount = total_amount
@@ -7458,7 +7250,6 @@ module Telegram
     # Optional. Provider payment identifier
     @[JSON::Field(key: "provider_payment_charge_id")]
     @provider_payment_charge_id : String?
-
   end
 
   # Telegram API type: ShippingQuery
@@ -7486,7 +7277,7 @@ module Telegram
       id : String,
       from : User,
       invoice_payload : String,
-      shipping_address : ShippingAddress
+      shipping_address : ShippingAddress,
     )
       @id = id
       @from = from
@@ -7535,7 +7326,7 @@ module Telegram
       total_amount : Int64,
       invoice_payload : String,
       shipping_option_id : String? = nil,
-      order_info : OrderInfo? = nil
+      order_info : OrderInfo? = nil,
     )
       @id = id
       @from = from
@@ -7559,7 +7350,6 @@ module Telegram
     # Bot-specified paid media payload
     @[JSON::Field(key: "paid_media_payload")]
     @paid_media_payload : String
-
   end
 
   # Telegram API type: RevenueWithdrawalState
@@ -7580,7 +7370,6 @@ module Telegram
     # Type of the state, always "pending"
     @[JSON::Field(key: "type")]
     @type : String
-
   end
 
   # Telegram API type: RevenueWithdrawalStateSucceeded
@@ -7599,7 +7388,6 @@ module Telegram
     # An HTTPS URL that can be used to see transaction details
     @[JSON::Field(key: "url")]
     @url : String
-
   end
 
   # Telegram API type: RevenueWithdrawalStateFailed
@@ -7610,7 +7398,6 @@ module Telegram
     # Type of the state, always "failed"
     @[JSON::Field(key: "type")]
     @type : String
-
   end
 
   # Telegram API type: AffiliateInfo
@@ -7637,7 +7424,6 @@ module Telegram
     # Optional. The number of 1/1000000000 shares of Telegram Stars received by the affiliate; from -999999999 to 999999999; can be negative for refunds
     @[JSON::Field(key: "nanostar_amount")]
     @nanostar_amount : Int64?
-
   end
 
   # Telegram API type: TransactionPartner
@@ -7698,7 +7484,6 @@ module Telegram
     # Optional. Number of months the gifted Telegram Premium subscription will be active for; for "premium_purchase" transactions only
     @[JSON::Field(key: "premium_subscription_duration")]
     @premium_subscription_duration : Int64?
-
   end
 
   # Telegram API type: TransactionPartnerChat
@@ -7717,7 +7502,6 @@ module Telegram
     # Optional. The gift sent to the chat by the bot
     @[JSON::Field(key: "gift")]
     @gift : Gift?
-
   end
 
   # Telegram API type: TransactionPartnerAffiliateProgram
@@ -7736,7 +7520,6 @@ module Telegram
     # Optional. Information about the bot that sponsored the affiliate program
     @[JSON::Field(key: "sponsor_user")]
     @sponsor_user : User?
-
   end
 
   # Telegram API type: TransactionPartnerFragment
@@ -7751,7 +7534,6 @@ module Telegram
     # Optional. State of the transaction if the transaction is outgoing
     @[JSON::Field(key: "withdrawal_state")]
     @withdrawal_state : RevenueWithdrawalState?
-
   end
 
   # Telegram API type: TransactionPartnerTelegramAds
@@ -7762,7 +7544,6 @@ module Telegram
     # Type of the transaction partner, always "telegram_ads"
     @[JSON::Field(key: "type")]
     @type : String
-
   end
 
   # Telegram API type: TransactionPartnerTelegramApi
@@ -7777,7 +7558,6 @@ module Telegram
     # The number of successful requests that exceeded regular limits and were therefore billed
     @[JSON::Field(key: "request_count")]
     @request_count : Int64
-
   end
 
   # Telegram API type: TransactionPartnerOther
@@ -7788,7 +7568,6 @@ module Telegram
     # Type of the transaction partner, always "other"
     @[JSON::Field(key: "type")]
     @type : String
-
   end
 
   # Telegram API type: StarTransaction
@@ -7819,7 +7598,6 @@ module Telegram
     # Optional. Receiver of an outgoing transaction (e.g., a user for a purchase refund, Fragment for a withdrawal). Only for outgoing transactions
     @[JSON::Field(key: "receiver")]
     @receiver : TransactionPartner?
-
   end
 
   # Telegram API type: StarTransactions
@@ -7830,7 +7608,6 @@ module Telegram
     # The list of transactions
     @[JSON::Field(key: "transactions")]
     @transactions : Array(StarTransaction)
-
   end
 
   # Telegram API type: PassportData
@@ -7845,7 +7622,6 @@ module Telegram
     # Encrypted credentials required to decrypt the data
     @[JSON::Field(key: "credentials")]
     @credentials : EncryptedCredentials
-
   end
 
   # Telegram API type: PassportFile
@@ -7868,7 +7644,6 @@ module Telegram
     # Unix time when the file was uploaded
     @[JSON::Field(key: "file_date")]
     @file_date : Int64
-
   end
 
   # Telegram API type: EncryptedPassportElement
@@ -7915,7 +7690,6 @@ module Telegram
     # Optional. Array of encrypted files with translated versions of documents provided by the user; available if requested for "passport", "driver_license", "identity_card", "internal_passport", "utility_bill", "bank_statement", "rental_agreement", "passport_registration" and "temporary_registration" types. Files can be decrypted and verified using the accompanying EncryptedCredentials.
     @[JSON::Field(key: "translation")]
     @translation : Array(PassportFile)?
-
   end
 
   # Telegram API type: EncryptedCredentials
@@ -7934,7 +7708,6 @@ module Telegram
     # Base64-encoded secret, encrypted with the bot's public RSA key, required for data decryption
     @[JSON::Field(key: "secret")]
     @secret : String
-
   end
 
   # Telegram API type: PassportElementError
@@ -7977,7 +7750,6 @@ module Telegram
     # Error message
     @[JSON::Field(key: "message")]
     @message : String
-
   end
 
   # Telegram API type: PassportElementErrorFrontSide
@@ -8000,7 +7772,6 @@ module Telegram
     # Error message
     @[JSON::Field(key: "message")]
     @message : String
-
   end
 
   # Telegram API type: PassportElementErrorReverseSide
@@ -8023,7 +7794,6 @@ module Telegram
     # Error message
     @[JSON::Field(key: "message")]
     @message : String
-
   end
 
   # Telegram API type: PassportElementErrorSelfie
@@ -8046,7 +7816,6 @@ module Telegram
     # Error message
     @[JSON::Field(key: "message")]
     @message : String
-
   end
 
   # Telegram API type: PassportElementErrorFile
@@ -8069,7 +7838,6 @@ module Telegram
     # Error message
     @[JSON::Field(key: "message")]
     @message : String
-
   end
 
   # Telegram API type: PassportElementErrorFiles
@@ -8092,7 +7860,6 @@ module Telegram
     # Error message
     @[JSON::Field(key: "message")]
     @message : String
-
   end
 
   # Telegram API type: PassportElementErrorTranslationFile
@@ -8115,7 +7882,6 @@ module Telegram
     # Error message
     @[JSON::Field(key: "message")]
     @message : String
-
   end
 
   # Telegram API type: PassportElementErrorTranslationFiles
@@ -8138,7 +7904,6 @@ module Telegram
     # Error message
     @[JSON::Field(key: "message")]
     @message : String
-
   end
 
   # Telegram API type: PassportElementErrorUnspecified
@@ -8161,7 +7926,6 @@ module Telegram
     # Error message
     @[JSON::Field(key: "message")]
     @message : String
-
   end
 
   # Telegram API type: Game
@@ -8199,7 +7963,7 @@ module Telegram
       photo : Array(PhotoSize),
       text : String? = nil,
       text_entities : Array(MessageEntity)? = nil,
-      animation : Animation? = nil
+      animation : Animation? = nil,
     )
       @title = title
       @description = description
@@ -8233,13 +7997,13 @@ module Telegram
     # Score
     @[JSON::Field(key: "score")]
     @score : Int64
-
   end
 
-
-  VERSION = "Bot API 9.2"
+  VERSION      = "Bot API 9.2"
   RELEASE_DATE = "August 15, 2025"
 
   # Re-export APIClient for convenience
   APIClient = Client::APIClient
 end
+
+require "../input_media_extensions"

@@ -228,7 +228,7 @@ module Telegram
       when "String"
         "s"
       when .starts_with?("Array(")
-        "a"  # For arrays, return as JSON::Any array
+        "a" # For arrays, return as JSON::Any array
       else
         # For complex types, deserialize from JSON
         "string"
@@ -269,7 +269,7 @@ module Telegram
       "addStickerToSet",
       "createNewStickerSet",
       "replaceStickerInSet",
-      "setWebhook"
+      "setWebhook",
     ] of String
 
     private def field_type_to_crystal(field : Field) : String
@@ -346,6 +346,5 @@ module Telegram
     private def rename_type_if_needed(type_name : String) : String
       TYPE_RENAMES[type_name]? || type_name
     end
-
-    end
+  end
 end

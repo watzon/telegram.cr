@@ -30,6 +30,7 @@ echo
 
 # Run the generator
 crystal run ./src/telegram/generator.cr
+crystal tool format
 
 echo
 echo "🎉 Generator completed successfully!"

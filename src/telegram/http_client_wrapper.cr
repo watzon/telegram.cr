@@ -297,7 +297,6 @@ module Telegram
           end
 
           return response
-
         rescue ex : IO::TimeoutError
           if attempt >= max_attempts
             raise TimeoutError.new("Request to #{url} timed out")
@@ -390,7 +389,7 @@ module Telegram
     private def default_port_for(scheme : String?) : Int32
       case scheme
       when "http" then 80
-      else 443
+      else             443
       end
     end
 
