@@ -41,7 +41,7 @@ dependencies:
 ### Basic Bot
 
 ```crystal
-require "telegram/generated/telegram"
+require "telegram"
 
 # Initialize the client
 client = Telegram::APIClient.new("YOUR_BOT_TOKEN")
