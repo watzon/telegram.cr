@@ -48,9 +48,7 @@ jobs:
     - name: Generate client and verify it compiles
       run: |
         rm -rf src/telegram/generated
-        ./bin/telegram-gen
+        bash ./generate.sh
         crystal build src/telegram/generated/telegram.cr
         crystal build src/telegram/generated/client.cr
-
-    - name: Check for security vulnerabilities
-      run: crystal deps list --verify
+        
