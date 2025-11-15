@@ -15,8 +15,8 @@ module TelegramExamples
     SAMPLE_PHOTO_PATH = File.expand_path("./assets/sample_photo.png", __DIR__)
 
     def initialize(
-      token : String = ENV["TELEGRAM_TEST_TOKEN"]? || "1575973705:AAF4R1WTjj7eW9ejHFL1O89CTduDKGtj6ZU",
-      @default_chat_id : Int64 = (ENV["TELEGRAM_TEST_CHAT_ID"]? || "370663289").to_i64
+      token : String = ENV["TELEGRAM_TEST_TOKEN"],
+      @default_chat_id : Int64 = ENV["TELEGRAM_TEST_CHAT_ID"].to_i64
     )
       @client = Telegram::APIClient.new(token)
       @last_update_id = 0
