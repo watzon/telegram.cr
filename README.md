@@ -33,7 +33,7 @@ Add this to your application's `shard.yml`:
 ```yaml
 dependencies:
   telegram:
-    github: your-username/telegram
+    github: watzon/telegram.cr
 ```
 
 ## Usage
