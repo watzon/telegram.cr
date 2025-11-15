@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        crystal:
+          - 1.12.0
+          - 1.13.0
+          - latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install Crystal
+      uses: crystal-lang/install-crystal@v1
+      with:
+        crystal: ${{ matrix.crystal }}
+
+    - name: Cache shards
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/shards
+        key: ${{ runner.os }}-crystal-${{ hashFiles('**/shard.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-crystal-
+
+    - name: Install dependencies
+      run: shards install
+
+    - name: Run tests
+      run: crystal spec
+
+    - name: Run formatter check
+      run: crystal tool format --check
+
+    - name: Build the generator
+      run: crystal build src/bin/telegram-gen.cr
+
+    - name: Generate client and verify it compiles
+      run: |
+        rm -rf src/telegram/generated
+        ./bin/telegram-gen
+        crystal build src/telegram/generated/telegram.cr
+        crystal build src/telegram/generated/client.cr
+
+    - name: Check for security vulnerabilities
+      run: crystal deps list --verify

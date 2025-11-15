@@ -16,7 +16,10 @@ module Telegram
         str << "# HTTP client for Telegram Bot API\n"
         str << "# Generated for Telegram Bot API #{spec.version} (#{spec.release_date})\n"
         str << "require \"http/client\"\n"
-        str << "require \"mime/multipart\"\n\n"
+        str << "require \"mime/multipart\"\n"
+        str << "require \"../json_helper\"\n"
+        str << "require \"../response_parser\"\n"
+        str << "require \"../http_client_wrapper\"\n\n"
 
         str << "module Telegram\n"
         str << "  module Client\n\n"
@@ -35,8 +38,11 @@ module Telegram
 
     private def generate_client_class(spec : APISpec) : String
       String.build do |str|
-        str << "    # Main API client for Telegram Bot API\n"
-        str << "    class APIClient\n\n"
+        str << "    # Main API client for Telegram Bot API with enhanced HTTP features\n"
+        str << "    # Features: persistent connections, retries, timeouts, proxy support\n"
+        str << "    class APIClient\n"
+        str << "      include Telegram::JSONHelper\n"
+        str << "      include Telegram::ResponseParser\n\n"
 
         str << "      # Bot token from @BotFather\n"
         str << "      property token : String\n\n"
@@ -44,7 +50,39 @@ module Telegram
         str << "      # Base API URL\n"
         str << "      property api_url : String = \"https://api.telegram.org\"\n\n"
 
+        str << "      # HTTP client configuration\n"
+        str << "      property http_config : Telegram::HTTPClientConfig\n\n"
+
+        str << "      # HTTP client wrapper\n"
+        str << "      @http_client : Telegram::HTTPClientWrapper\n\n"
+
+        str << "      # Initialize with default configuration\n"
         str << "      def initialize(@token : String, @api_url : String = \"https://api.telegram.org\")\n"
+        str << "        @http_config = Telegram::HTTPClientConfig.new\n"
+        str << "        @http_client = Telegram::HTTPClientWrapper.new(@http_config)\n"
+        str << "      end\n\n"
+
+        str << "      # Initialize with custom configuration\n"
+        str << "      def initialize(@token : String, @api_url : String, @http_config : Telegram::HTTPClientConfig)\n"
+        str << "        @http_client = Telegram::HTTPClientWrapper.new(@http_config)\n"
+        str << "      end\n\n"
+
+        str << "      # Initialize with custom HTTP client (for advanced use cases)\n"
+        str << "      def initialize(@token : String, @api_url : String, custom_client : HTTP::Client, @http_config : Telegram::HTTPClientConfig = Telegram::HTTPClientConfig.new)\n"
+        str << "        @http_client = Telegram::HTTPClientWrapper.new(custom_client, @http_config)\n"
+        str << "      end\n\n"
+
+        str << "      # Configure the HTTP client\n"
+        str << "      def configure_http(&block : Telegram::HTTPClientConfig ->)\n"
+        str << "        yield @http_config\n"
+        str << "        # Recreate the HTTP client with new configuration\n"
+        str << "        @http_client.close\n"
+        str << "        @http_client = Telegram::HTTPClientWrapper.new(@http_config)\n"
+        str << "      end\n\n"
+
+        str << "      # Close the HTTP client and cleanup resources\n"
+        str << "      def close\n"
+        str << "        @http_client.close\n"
         str << "      end\n\n"
 
         # Generate methods for each API endpoint
@@ -107,94 +145,103 @@ module Telegram
     private def generate_method_body(method : APIMethod, snake_case_method_name : String) : String
       return_type = method_returns_to_crystal(method.returns)
 
-      # Check if method has file parameters that require multipart form
-      has_files = method_has_file_parameters?(method)
+      # Check if method can potentially have file parameters
+      can_have_files = method_can_have_files?(method)
 
       String.build do |str|
-        if has_files
-          str << "        # Build multipart form data for file upload\n"
-          str << "        boundary = MIME::Multipart.generate_boundary\n"
-          str << "        form_body = MIME::Multipart.build(boundary) do |builder|\n"
-
-          if fields = method.fields
-            fields.each do |field|
-              snake_case_field_name = field.name.underscore
-              if is_file_parameter?(field)
-                str << "          if #{snake_case_field_name}\n"
-                str << "            if #{snake_case_field_name}.is_a?(File)\n"
-                str << "              file_io = #{snake_case_field_name}\n"
-                str << "              filename = File.basename(#{snake_case_field_name}.path)\n"
-                str << "            elsif #{snake_case_field_name}.is_a?(IO)\n"
-                str << "              file_io = #{snake_case_field_name}\n"
-                str << "              filename = \"file\"\n"
-                str << "            else\n"
-                str << "              file_io = IO::Memory.new(#{snake_case_field_name}.to_s)\n"
-                str << "              filename = \"file\"\n"
-                str << "            end\n"
-                str << "            headers = HTTP::Headers{\n"
-                str << "              \"Content-Disposition\" => \"form-data; name=\\\"#{field.name}\\\"; filename=\\\"#\{filename}\\\"\",\n"
-                str << "              \"Content-Type\" => \"application/octet-stream\"\n"
-                str << "            }\n"
-                str << "            builder.body_part(headers, file_io)\n"
-                str << "          end\n"
-              else
-                str << "          if #{snake_case_field_name}\n"
-                str << "            headers = HTTP::Headers{\"Content-Disposition\" => \"form-data; name=\\\"#{field.name}\\\"\"}\n"
-                str << "            builder.body_part(headers, #{snake_case_field_name}.to_s)\n"
-                str << "          end\n"
-              end
-            end
+        # Collect all parameters for runtime file detection
+        if fields = method.fields
+          param_list = fields.map { |field| field.name.underscore }.join(", ")
+          str << "        # Collect parameters for file detection\n"
+          str << "        params_hash = {\n"
+          fields.each do |field|
+            snake_case_field_name = field.name.underscore
+            str << "          \"#{field.name}\" => #{snake_case_field_name},\n"
           end
+          str << "        }\n\n"
+        end
 
+        if can_have_files
+          str << "        # Runtime detection: check if any parameters contain actual file data\n"
+          str << "        has_files = contains_file_data?(params_hash)\n\n"
+
+          str << "        if has_files\n"
+          str << "          # Use multipart form data for file uploads\n"
+          str << "          boundary, form_body = build_multipart_form_with_files(params_hash)\n"
+          str << "          \n"
+          str << "          # Make HTTP request with multipart form using enhanced client\n"
+          str << "          url = \"\#{@api_url}/bot\#{@token}/#{method.name}\"\n"
+          str << "          response = @http_client.post_multipart(url, {boundary, form_body})\n"
+          str << "        else\n"
+          str << "          # Use JSON request when no files are present\n"
+          str << "          params = build_request_hash_from_hash(params_hash)\n"
+          str << "          \n"
+          str << "          # Make HTTP request using enhanced client\n"
+          str << "          url = \"\#{@api_url}/bot\#{@token}/#{method.name}\"\n"
+          str << "          response = @http_client.post(url,\n"
+          str << "            headers: HTTP::Headers{\"Content-Type\" => \"application/json\"},\n"
+          str << "            body: params.to_json\n"
+          str << "          )\n"
           str << "        end\n"
-          str << "\n"
-          str << "        # Make HTTP request with multipart form\n"
-          str << "        url = \"\#{@api_url}/bot\#{@token}/#{method.name}\"\n"
-          str << "        response = HTTP::Client.post(url,\n"
-          str << "          headers: HTTP::Headers{\"Content-Type\" => \"multipart/form-data; boundary=\#{boundary}\"},\n"
-          str << "          body: form_body\n"
-          str << "        )\n"
         else
-          str << "        # Build JSON request parameters\n"
-          str << "        params = Hash(String, JSON::Any).new\n"
-
+          str << "        # Build JSON request parameters (method never accepts files)\n"
+          str << "        params = build_request_hash("
           if fields = method.fields
+            str << "\n"
             fields.each do |field|
               snake_case_field_name = field.name.underscore
-              str << "        params[\"#{field.name}\"] = JSON::Any.new(#{snake_case_field_name}) if #{snake_case_field_name}\n"
+              str << "          #{snake_case_field_name}: #{snake_case_field_name},\n"
             end
           end
-
-          str << "\n"
-          str << "        # Make HTTP request\n"
+          str << "        )\n\n"
+          str << "        # Make HTTP request using enhanced client\n"
           str << "        url = \"\#{@api_url}/bot\#{@token}/#{method.name}\"\n"
-          str << "        response = HTTP::Client.post(url,\n"
+          str << "        response = @http_client.post(url,\n"
           str << "          headers: HTTP::Headers{\"Content-Type\" => \"application/json\"},\n"
           str << "          body: params.to_json\n"
           str << "        )\n"
         end
 
         str << "\n"
-        str << "        # Handle response\n"
-        str << "        unless response.success?\n"
-        str << "          raise \"Telegram API error: \#{response.status_code} - \#{response.body}\"\n"
-        str << "        end\n"
-        str << "\n"
-        str << "        # Parse response\n"
+        str << "        # Parse response - extract and deserialize the result\n"
         str << "        json_response = JSON.parse(response.body)\n"
-        str << "\n"
         str << "        unless json_response[\"ok\"]?.try(&.as_bool)\n"
         str << "          error_desc = json_response[\"description\"]?.try(&.as_s) || \"Unknown error\"\n"
-        str << "          raise \"Telegram API error: \#{error_desc}\"\n"
+        str << "          raise \"API Error: \" + error_desc\n"
         str << "        end\n"
-        str << "\n"
-
-        # Generate appropriate parsing based on return type
-        str << generate_response_parsing(return_type)
+        str << "        result_data = json_response[\"result\"]\n"
+        str << "        #{method_returns_to_crystal(method.returns)}.from_json(result_data.to_json)\n"
       end
     end
 
-    # Check if method has file parameters that require multipart form
+    # Map API types to Crystal as_* methods for response parsing
+    private def type_to_crystal_type(type : String) : String
+      case type
+      when "Bool"
+        "bool"
+      when "Int32", "Integer"
+        "i"
+      when "Int64"
+        "i64"
+      when "Float64", "Float"
+        "f64"
+      when "String"
+        "s"
+      when .starts_with?("Array(")
+        "a"  # For arrays, return as JSON::Any array
+      else
+        # For complex types, deserialize from JSON
+        "string"
+      end
+    end
+
+    # Check if method can potentially have file parameters (runtime detection will be used)
+    # This is based on the explicit list of methods that can accept files in Telegram Bot API
+    private def method_can_have_files?(method : APIMethod) : Bool
+      FILE_ACCEPTING_METHODS.includes?(method.name)
+    end
+
+    # Check if method has file parameters that require multipart form (legacy method)
     private def method_has_file_parameters?(method : APIMethod) : Bool
       return false unless fields = method.fields
       fields.any? { |field| is_file_parameter?(field) }
@@ -205,47 +252,25 @@ module Telegram
       field.types.any? { |type| type == "InputFile" }
     end
 
-    private def generate_response_parsing(return_type : String) : String
-      String.build do |str|
-        case return_type
-        when "Bool"
-          str << "        json_response[\"result\"].as_bool\n"
-        when "Int32"
-          str << "        json_response[\"result\"].as_i\n"
-        when "String"
-          str << "        json_response[\"result\"].as_s\n"
-        when "Float64"
-          str << "        json_response[\"result\"].as_f\n"
-        when .starts_with?("Array(")
-          # Handle Array(SomeType)
-          element_type = return_type["Array(".size..-2] # Remove "Array(" and trailing ")"
-          if is_basic_type?(element_type)
-            str << "        json_response[\"result\"].as_a.map { |item| item.as_#{basic_type_accessor(element_type)} }\n"
-          else
-            str << "        json_response[\"result\"].as_a.map { |item| #{element_type}.from_json(item.to_json) }\n"
-          end
-        when "JSON::Any"
-          str << "        json_response[\"result\"]\n"
-        else
-          # Complex type - use from_json
-          str << "        #{return_type}.from_json(json_response[\"result\"].to_json)\n"
-        end
-      end
-    end
-
-    private def is_basic_type?(type : String) : Bool
-      ["Bool", "Int32", "Int64", "Float64", "String"].includes?(type)
-    end
-
-    private def basic_type_accessor(type : String) : String
-      case type
-      when "Bool" then "bool"
-      when "Int32", "Int64" then "i64"
-      when "Float64" then "f64"
-      when "String" then "s"
-      else "i"
-      end
-    end
+    # List of Telegram Bot API methods that can accept file uploads
+    # This follows the same approach as Tourmaline for better accuracy
+    FILE_ACCEPTING_METHODS = [
+      "sendPhoto",
+      "sendAudio",
+      "sendDocument",
+      "sendVideo",
+      "sendAnimation",
+      "sendVoice",
+      "sendVideoNote",
+      "sendMediaGroup",
+      "setChatPhoto",
+      "setStickerSetThumbnail",
+      "uploadStickerFile",
+      "addStickerToSet",
+      "createNewStickerSet",
+      "replaceStickerInSet",
+      "setWebhook"
+    ] of String
 
     private def field_type_to_crystal(field : Field) : String
       if field.types.size == 1
@@ -270,7 +295,7 @@ module Telegram
       when "True"
         "Bool"
       when "InputFile"
-        "File | IO"
+        "Telegram::InputFile | File | IO"
       else
         # Handle array types
         if type_str.starts_with?("Array of ")
@@ -321,5 +346,6 @@ module Telegram
     private def rename_type_if_needed(type_name : String) : String
       TYPE_RENAMES[type_name]? || type_name
     end
-  end
+
+    end
 end

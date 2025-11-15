@@ -108,6 +108,30 @@ describe Telegram::Client::APIClient do
         )
       end
     end
+
+    it "applies custom HTTP configuration values" do
+      WebMock.wrap do
+        original_agent = client.http_config.user_agent
+
+        begin
+          client.configure_http do |config|
+            config.user_agent = "Custom-UA"
+          end
+
+          WebMock.stub("POST", "https://api.telegram.org/bottest_token/getMe")
+            .to_return do |request|
+              request.headers["User-Agent"]?.should eq("Custom-UA")
+              HTTP::Client::Response.new(200, body: MOCK_SUCCESS_RESPONSE)
+            end
+
+          client.get_me
+        ensure
+          client.configure_http do |config|
+            config.user_agent = original_agent
+          end
+        end
+      end
+    end
   end
 
   describe "multipart form handling for file uploads" do
@@ -191,6 +215,83 @@ describe Telegram::Client::APIClient do
         File.delete(temp_file.path)
       end
     end
+
+    it "supports file uploads inside media groups using InputFile" do
+      WebMock.wrap do
+        WebMock.stub("POST", "https://api.telegram.org/bottest_token/sendMediaGroup")
+          .to_return do |request|
+            content_type = request.headers["Content-Type"]?
+            content_type.should_not be_nil
+            content_type.not_nil!.includes?("multipart/form-data").should be_true
+
+            body = WebMock.body(request)
+            body.should_not be_nil
+            payload = body.not_nil!
+            payload.includes?("name=\"media\"").should be_true
+            payload.includes?("attach://file0").should be_true
+            payload.includes?("name=\"file0\"").should be_true
+            payload.includes?("fake photo bytes").should be_true
+
+            response_body = {
+              "ok" => true,
+              "result" => [JSON.parse(MOCK_MESSAGE_RESPONSE)["result"]]
+            }.to_json
+            HTTP::Client::Response.new(200, body: response_body)
+          end
+
+        media = [
+          Telegram::InputMediaPhoto.new(
+            type: "photo",
+            media: Telegram::InputFile.from_data("fake photo bytes", "photo.jpg"),
+            caption: "Album photo"
+          )
+        ]
+
+        client.send_media_group(chat_id: 987654321, media: media)
+      end
+    end
+
+    it "sends JSON payloads when using existing file_ids" do
+      WebMock.wrap do
+        WebMock.stub("POST", "https://api.telegram.org/bottest_token/sendDocument")
+          .to_return do |request|
+            headers = request.headers
+            headers["Content-Type"]?.should eq("application/json")
+
+            body = WebMock.body(request)
+            body.should_not be_nil
+            json = JSON.parse(body.not_nil!)
+            json["chat_id"].as_i.should eq(987654321)
+            json["document"].as_s.should eq("FILE_ID")
+
+            HTTP::Client::Response.new(200, body: MOCK_MESSAGE_RESPONSE)
+          end
+
+        client.send_document(chat_id: 987654321, document: "FILE_ID")
+      end
+    end
+
+    it "uploads file content when sendDocument receives IO" do
+      WebMock.wrap do
+        WebMock.stub("POST", "https://api.telegram.org/bottest_token/sendDocument")
+          .to_return do |request|
+            content_type = request.headers["Content-Type"]?
+            content_type.should_not be_nil
+            content_type.not_nil!.includes?("multipart/form-data").should be_true
+
+            body = WebMock.body(request)
+            body.should_not be_nil
+            payload = body.not_nil!
+            payload.includes?("name=\"document\"").should be_true
+            payload.includes?("fake document bytes").should be_true
+
+            HTTP::Client::Response.new(200, body: MOCK_MESSAGE_RESPONSE)
+          end
+
+        io = IO::Memory.new("fake document bytes")
+        client.send_document(chat_id: 987654321, document: io)
+      end
+    end
   end
 
   describe "error handling" do
@@ -206,7 +307,7 @@ describe Telegram::Client::APIClient do
           .with(body: "{\"chat_id\":999999,\"text\":\"Hello\"}", headers: {"Content-Type" => "application/json"})
           .to_return(status: 200, body: error_response)
 
-        expect_raises(Exception, /Telegram API error: Bad Request: chat not found/) do
+        expect_raises(Telegram::APIError, /Bad Request: chat not found/) do
           client.send_message(chat_id: 999999, text: "Hello")
         end
       end
@@ -218,7 +319,7 @@ describe Telegram::Client::APIClient do
           .with(body: "{}", headers: {"Content-Type" => "application/json"})
           .to_return(status: 500, body: "Internal Server Error")
 
-        expect_raises(Exception, /Telegram API error: 500 - Internal Server Error/) do
+        expect_raises(Telegram::NetworkError, /HTTP error: 500 Internal Server Error/) do
           client.get_me
         end
       end
@@ -235,7 +336,7 @@ describe Telegram::Client::APIClient do
         result = client.get_me
 
         result.should be_a(Telegram::User)
-        result.id.should be_a(Int32)
+        result.id.should be_a(Int64)
         result.is_bot.should be_a(Bool)
         result.first_name.should be_a(String)
       end
@@ -250,9 +351,89 @@ describe Telegram::Client::APIClient do
         result = client.send_message(chat_id: 987654321, text: "Hello")
 
         result.should be_a(Telegram::Message)
-        result.message_id.should be_a(Int32)
+        result.message_id.should be_a(Int64)
         result.chat.should be_a(Telegram::Chat)
       end
     end
+  end
+
+  describe "concurrency" do
+    it "supports concurrent requests via the HTTP client pool" do
+      WebMock.wrap do
+        WebMock.stub("POST", "https://api.telegram.org/bottest_token/sendMessage")
+          .to_return(body: MOCK_MESSAGE_RESPONSE)
+
+        done = Channel(Nil).new
+
+        5.times do
+          spawn do
+            client.send_message(chat_id: 987654321, text: "Hello")
+            done.send(nil)
+          end
+        end
+
+        5.times { done.receive }
+      end
+    end
+  end
+end
+
+describe Telegram::InputFile do
+  it "requires a multipart registry during JSON serialization" do
+    input_file = Telegram::InputFile.from_data("bytes", "file.txt")
+
+    expect_raises(ArgumentError, /only be serialized inside multipart/) do
+      JSON.build { |json| input_file.to_json(json) }
+    end
+  end
+
+  it "registers attachments when a registry is active" do
+    input_file = Telegram::InputFile.from_data("bytes", "file.txt")
+    registry = Telegram::Multipart::AttachmentRegistry.new
+
+    json_output = String.build do |buffer|
+      JSON.build(buffer) do |json|
+        Telegram::Multipart.with_registry(registry) do
+          input_file.to_json(json)
+        end
+      end
+    end
+
+    json_output.should eq("\"attach://file0\"")
+    registry.attachments.size.should eq(1)
+    attachment = registry.attachments.first
+    attachment.name.should eq("file0")
+    attachment.file.filename.should eq("file.txt")
+  end
+
+  it "copies data and rewinds source IO after write" do
+    source = IO::Memory.new("payload")
+    input_file = Telegram::InputFile.new(source, "payload.txt")
+    destination = IO::Memory.new
+
+    input_file.write_to(destination)
+
+    destination.rewind
+    destination.gets_to_end.should eq("payload")
+
+    source.rewind
+    source.gets_to_end.should eq("payload")
+  end
+end
+
+describe Telegram::InputMediaPhoto do
+  it "tracks whether it contains file data" do
+    media_from_id = Telegram::InputMediaPhoto.new(
+      type: "photo",
+      media: "FILE_ID"
+    )
+    media_from_id.contains_file_data?.should be_false
+
+    file = Telegram::InputFile.from_data("bytes", "new.jpg")
+    media_from_file = Telegram::InputMediaPhoto.new(
+      type: "photo",
+      media: file
+    )
+    media_from_file.contains_file_data?.should be_true
   end
 end

@@ -1,257 +1,249 @@
-# Telegram Bot API Client Generator
+# Telegram
 
-> A Crystal-based code generator that creates a type-safe, comprehensive Telegram Bot API client from the official API specification
+> A dead simple Telegram Bot API client for Crystal
 
-[![Crystal](https://img.shields.io/badge/Crystal-0.35+-lightblue.svg)](https://crystal-lang.org/)
-[![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+This library generates a type-safe Telegram Bot API client from the official API specification, providing full Crystal bindings for all Telegram Bot API methods and types.
 
 ## Table of Contents
 
+- [Background](#background)
 - [Install](#install)
 - [Usage](#usage)
 - [API](#api)
-- [Security](#security)
+- [Examples](#examples)
+- [Generating the Client](#generating-the-client)
+- [Development](#development)
 - [Contributing](#contributing)
 - [License](#license)
 
+## Background
+
+The Telegram Bot API provides a simple way to create bots that can interact with Telegram users. This Crystal library generates a complete, type-safe client that handles:
+
+- All Telegram Bot API methods with proper typing
+- Automatic file upload detection (JSON vs multipart)
+- Thread-safe multipart form handling
+- Production-ready HTTP client with retries and connection pooling
+- Full support for all API types and union types
+
 ## Install
 
-This project requires Crystal 0.35 or higher.
+Add this to your application's `shard.yml`:
 
-### Prerequisites
-
-1. **Install Crystal** - Follow the official installation guide: [https://crystal-lang.org/install/](https://crystal-lang.org/install/)
-
-2. **Clone the repository**
-   ```bash
-   git clone https://github.com/your-username/telegram.git
-   cd telegram
-   ```
-
-3. **Install dependencies**
-   ```bash
-   shards install
-   ```
-
-### Generate the Telegram Client
-
-Run the included generator script:
-
-```bash
-./generate.sh
+```yaml
+dependencies:
+  telegram:
+    github: your-username/telegram
 ```
-
-Or manually run the generator:
-
-```bash
-crystal run ./src/telegram/generator.cr
-```
-
-This will generate:
-- `src/telegram/generated/telegram.cr` - Complete type definitions
-- `src/telegram/generated/client.cr` - HTTP client implementation
 
 ## Usage
 
-### Basic Example
+### Basic Bot
 
 ```crystal
-require "./src/telegram/generated/telegram"
+require "telegram/generated/telegram"
 
-# Create a client with your bot token
+# Initialize the client
 client = Telegram::APIClient.new("YOUR_BOT_TOKEN")
 
-# Get bot information
-bot_info = client.get_me
-puts "Bot ID: #{bot_info.id}"
-puts "Bot Name: #{bot_info.first_name}"
-puts "Username: @#{bot_info.username}"
-
 # Send a message
-message = client.send_message(
+client.send_message(
   chat_id: 123456789,
-  text: "Hello from Crystal! 🚀"
+  text: "Hello, World!"
 )
-puts "Message sent with ID: #{message.message_id}"
+
+# Send a photo
+client.send_photo(
+  chat_id: 123456789,
+  photo: Telegram::InputFile.from_path("photo.jpg"),
+  caption: "Here's a photo"
+)
+```
+
+### Long-polling Bot
+
+```crystal
+client = Telegram::APIClient.new("YOUR_BOT_TOKEN")
+last_update_id = 0
+
+loop do
+  updates = client.get_updates(offset: last_update_id, timeout: 20)
+
+  updates.each do |update|
+    last_update_id = update.update_id + 1
+
+    if message = update.message
+      if text = message.text
+        case text
+        when "/start"
+          client.send_message(
+            chat_id: message.chat.id,
+            text: "Welcome to my bot!"
+          )
+        else
+          client.send_message(
+            chat_id: message.chat.id,
+            text: "You said: #{text}"
+          )
+        end
+      end
+    end
+  end
+rescue ex
+  puts "Error: #{ex.message}"
+  sleep 1.second
+  retry
+end
 ```
 
 ### File Uploads
 
-```crystal
-# Send a photo
-client.send_photo(
-  chat_id: 123456789,
-  photo: File.open("path/to/photo.jpg"),
-  caption: "Check out this photo!"
-)
+The library automatically detects when you're uploading files and switches to multipart form data:
 
-# Send a document from IO
+```crystal
+# Upload from file path
 client.send_document(
   chat_id: 123456789,
-  document: IO::Memory.new("document content"),
-  caption: "Generated document"
+  document: Telegram::InputFile.from_path("document.pdf")
 )
-```
 
-### Advanced Usage
-
-```crystal
-# Use optional parameters
-client.send_message(
+# Upload from IO object
+file_io = File.open("photo.jpg")
+client.send_photo(
   chat_id: 123456789,
-  text: "*Bold text* and _italic text_",
-  parse_mode: "Markdown",
-  disable_notification: true
+  photo: Telegram::InputFile.new(file_io, "photo.jpg", "image/jpeg")
 )
 
-# Handle updates
-updates = client.get_updates(offset: 0, limit: 10)
-updates.each do |update|
-  puts "Received: #{update.message?.try(&.text)}"
-end
+# Upload raw bytes
+bytes = File.read("data.bin")
+client.send_document(
+  chat_id: 123456789,
+  document: Telegram::InputFile.new(IO::Memory.new(bytes), "data.bin", "application/octet-stream")
+)
 ```
 
 ## API
 
-The generated client provides complete coverage of the Telegram Bot API v9.2 with:
+The generated client provides methods for all Telegram Bot API endpoints. Each method:
 
-### Features
+- Returns properly typed Crystal objects
+- Handles both JSON and multipart requests automatically
+- Includes all optional parameters from the official API
+- Supports union types for flexible input
 
-- **Type Safety**: All methods return proper Crystal types (not `JSON::Any`)
-- **Multipart Form Support**: Automatic handling of file uploads with `multipart/form-data`
-- **Error Handling**: Proper exception handling for API and HTTP errors
-- **Parameter Validation**: Required parameters are enforced, optional parameters have sensible defaults
-- **JSON Serialization**: Automatic serialization/deserialization of complex types
+### HTTP Client Configuration
 
-### Key Methods
-
-| Method | Description | Return Type |
-|--------|-------------|-------------|
-| `get_me()` | Get basic bot information | `Telegram::User` |
-| `send_message(chat_id, text, ...)` | Send text messages | `Telegram::Message` |
-| `send_photo(chat_id, photo, ...)` | Send photos | `Telegram::Message` |
-| `send_document(chat_id, document, ...)` | Send documents | `Telegram::Message` |
-| `get_updates(offset?, limit?, ...)` | Get incoming updates | `Array(Telegram::Update)` |
-| `set_webhook(url?, ...)` | Configure webhook | `Bool` |
-
-### Complete API Coverage
-
-The client supports all 100+ Telegram Bot API methods including:
-- Messages (text, photos, documents, audio, video, etc.)
-- Inline mode
-- Games
-- Payments
-- Stickers
-- Chats management
-- Webhooks
-- And much more...
-
-### Type Mapping
-
-| Telegram API Type | Crystal Type |
-|-------------------|--------------|
-| `Integer` | `Int32` |
-| `Float` | `Float64` |
-| `String` | `String` |
-| `Boolean` | `Bool` |
-| `Array of Type` | `Array(Type)` |
-| `InputFile` | `File | IO` |
-| Custom types | `Telegram::TypeName` |
-
-## Security
-
-### Bot Token Security
-
-- **Never commit bot tokens** to version control
-- Use environment variables or configuration files
-- Consider using `.env` files (add to `.gitignore`)
+Configure the underlying HTTP client for production use:
 
 ```crystal
-# Recommended: Load from environment
-token = ENV["TELEGRAM_BOT_TOKEN"]
-client = Telegram::APIClient.new(token)
+client.configure_http do |config|
+  config.timeout = 30.seconds
+  config.retry_attempts = 3
+  config.retry_delay = 1.second
+  config.log_requests = true
+  config.log_responses = false
+end
 ```
 
-### Webhook Security
+### Error Handling
 
-When using webhooks:
-- Always validate webhook requests
-- Use HTTPS for webhook URLs
-- Implement proper authentication
+The library provides specific exception types:
+
+```crystal
+begin
+  client.send_message(chat_id: 123456789, text: "Hello")
+rescue Telegram::APIError ex
+  puts "API Error: #{ex.message} (code: #{ex.error_code})"
+rescue Telegram::NetworkError ex
+  puts "Network Error: #{ex.message}"
+rescue Telegram::TimeoutError ex
+  puts "Request timed out"
+end
+```
+
+## Examples
+
+See the `examples/` directory for complete working examples:
+
+- `test_bot.cr` - Full-featured bot with long-polling, file uploads, and inline keyboards
+- More examples coming soon
+
+Run the example:
+
+```bash
+# Set your bot token
+export TELEGRAM_TEST_TOKEN="your_bot_token_here"
+export TELEGRAM_TEST_CHAT_ID="your_chat_id_here"
+
+# Run the test bot
+crystal run examples/test_bot.cr
+```
+
+## Generating the Client
+
+The client is generated from the official Telegram Bot API specification. To regenerate:
+
+```bash
+# Generate to default location (src/telegram/generated)
+crystal run ./src/telegram/generator.cr
+
+# Or use the convenience script
+./generate.sh
+
+# Generate with custom output directory
+crystal run ./src/telegram/generator.cr -- ./src/custom/output
+
+# Build the generator binary
+crystal build src/bin/telegram-gen.cr
+./telegram-gen -o ./src/telegram/generated
+```
+
+The generated files are:
+- `telegram.cr` - Main module with all API types and the client interface
+- `client.cr` - HTTP client implementation with all API methods
+
+These files should not be manually edited as they will be overwritten on regeneration.
+
+## Development
+
+### Setup
+
+```bash
+# Install dependencies
+shards install
+
+# Generate the client
+./generate.sh
+
+# Run tests
+crystal spec
+
+# Run tests with verbose output
+crystal spec --verbose
+```
+
+### Project Structure
+
+- `src/telegram/generator.cr` - Main code generator
+- `src/telegram/type_generator.cr` - Type definition generator
+- `src/telegram/client_generator.cr` - API method generator
+- `src/telegram/http_client_wrapper.cr` - Production HTTP client
+- `src/telegram/input_file.cr` - File upload handling
+- `src/telegram/generated/` - Generated client code (don't edit)
 
 ## Contributing
 
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-### Development Setup
-
-1. **Fork and clone**
-   ```bash
-   git clone https://github.com/your-username/telegram.git
-   cd telegram
-   ```
-
-2. **Install dependencies**
-   ```bash
-   shards install
-   ```
-
-3. **Run tests**
-   ```bash
-   crystal spec
-   ```
-
-4. **Run generator**
-   ```bash
-   ./generate.sh
-   ```
-
-### Running Tests
-
-The project includes comprehensive tests using Crystal's built-in testing framework and WebMock for HTTP request stubbing:
-
-```bash
-# Run all tests
-crystal spec
-
-# Run with verbose output
-crystal spec --verbose
-
-# Run specific test file
-crystal spec spec/telegram_client_spec.cr
-```
-
-### Test Coverage
-
-The test suite covers:
-- HTTP request generation and validation
-- JSON request body serialization
-- Multipart form data for file uploads
-- Error handling (API errors and HTTP errors)
-- Type safety and return type validation
-- File upload handling (File objects, IO objects)
-
-### Style Guide
-
-- Follow Crystal style guidelines
-- Use crystal tool format for code formatting
-- Write descriptive commit messages following [Conventional Commits](https://www.conventionalcommits.org/)
-- Add tests for new features
-
-### Contact
-
-- **GitHub Issues**: [Create an issue](https://github.com/your-username/telegram/issues)
-- **Author**: watzon
+1. Fork the repository
+2. Create your feature branch (`git checkout -b my-new-feature`)
+3. Commit your changes (`git commit -am 'Add some feature'`)
+4. Push to the branch (`git push origin my-new-feature`)
+5. Create a new Pull Request
 
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
----
-
 ## Acknowledgments
 
-- [Telegram Bot API](https://core.telegram.org/bots/api) - The official API documentation
-- [Crystal Programming Language](https://crystal-lang.org/) - Amazing type-safe language
-- [WebMock.cr](https://github.com/manastech/webmock.cr) - HTTP request stubbing for testing
-- The Crystal community for inspiration and feedback
+- Based on the [official Telegram Bot API specification](https://core.telegram.org/bots/api)
+- Generated from [PaulSonOfLars/telegram-bot-api-spec](https://github.com/PaulSonOfLars/telegram-bot-api-spec)

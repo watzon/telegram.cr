@@ -9,8 +9,6 @@ crystal: '>= 1.18.2'
 license: MIT
 
 dependencies:
-  crygen:
-    github: tamdaz/crygen
 
 development_dependencies:
   webmock:

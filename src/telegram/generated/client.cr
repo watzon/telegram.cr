@@ -2,12 +2,18 @@
 # Generated for Telegram Bot API Bot API 9.2 (August 15, 2025)
 require "http/client"
 require "mime/multipart"
+require "../json_helper"
+require "../response_parser"
+require "../http_client_wrapper"
 
 module Telegram
   module Client
 
-    # Main API client for Telegram Bot API
+    # Main API client for Telegram Bot API with enhanced HTTP features
+    # Features: persistent connections, retries, timeouts, proxy support
     class APIClient
+      include Telegram::JSONHelper
+      include Telegram::ResponseParser
 
       # Bot token from @BotFather
       property token : String
@@ -15,7 +21,39 @@ module Telegram
       # Base API URL
       property api_url : String = "https://api.telegram.org"
 
+      # HTTP client configuration
+      property http_config : Telegram::HTTPClientConfig
+
+      # HTTP client wrapper
+      @http_client : Telegram::HTTPClientWrapper
+
+      # Initialize with default configuration
       def initialize(@token : String, @api_url : String = "https://api.telegram.org")
+        @http_config = Telegram::HTTPClientConfig.new
+        @http_client = Telegram::HTTPClientWrapper.new(@http_config)
+      end
+
+      # Initialize with custom configuration
+      def initialize(@token : String, @api_url : String, @http_config : Telegram::HTTPClientConfig)
+        @http_client = Telegram::HTTPClientWrapper.new(@http_config)
+      end
+
+      # Initialize with custom HTTP client (for advanced use cases)
+      def initialize(@token : String, @api_url : String, custom_client : HTTP::Client, @http_config : Telegram::HTTPClientConfig = Telegram::HTTPClientConfig.new)
+        @http_client = Telegram::HTTPClientWrapper.new(custom_client, @http_config)
+      end
+
+      # Configure the HTTP client
+      def configure_http(&block : Telegram::HTTPClientConfig ->)
+        yield @http_config
+        # Recreate the HTTP client with new configuration
+        @http_client.close
+        @http_client = Telegram::HTTPClientWrapper.new(@http_config)
+      end
+
+      # Close the HTTP client and cleanup resources
+      def close
+        @http_client.close
       end
 
       # getUpdates
@@ -24,34 +62,37 @@ module Telegram
       # Returns: Array(Update)
       # See: https://core.telegram.org/bots/api#getupdates
       def get_updates(offset : Int32? = nil, limit : Int32? = nil, timeout : Int32? = nil, allowed_updates : Array(String)? = nil) : Array(Update)
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["offset"] = JSON::Any.new(offset) if offset
-        params["limit"] = JSON::Any.new(limit) if limit
-        params["timeout"] = JSON::Any.new(timeout) if timeout
-        params["allowed_updates"] = JSON::Any.new(allowed_updates) if allowed_updates
+        # Collect parameters for file detection
+        params_hash = {
+          "offset" => offset,
+          "limit" => limit,
+          "timeout" => timeout,
+          "allowed_updates" => allowed_updates,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          offset: offset,
+          limit: limit,
+          timeout: timeout,
+          allowed_updates: allowed_updates,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/getUpdates"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"].as_a.map { |item| Update.from_json(item.to_json) }
+        result_data = json_response["result"]
+        Array(Update).from_json(result_data.to_json)
       end
 
       # setWebhook
@@ -60,74 +101,48 @@ module Telegram
       #
       # Returns: Bool
       # See: https://core.telegram.org/bots/api#setwebhook
-      def set_webhook(url : String, certificate : File | IO? = nil, ip_address : String? = nil, max_connections : Int32? = nil, allowed_updates : Array(String)? = nil, drop_pending_updates : Bool? = nil, secret_token : String? = nil) : Bool
-        # Build multipart form data for file upload
-        boundary = MIME::Multipart.generate_boundary
-        form_body = MIME::Multipart.build(boundary) do |builder|
-          if url
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"url\""}
-            builder.body_part(headers, url.to_s)
-          end
-          if certificate
-            if certificate.is_a?(File)
-              file_io = certificate
-              filename = File.basename(certificate.path)
-            elsif certificate.is_a?(IO)
-              file_io = certificate
-              filename = "file"
-            else
-              file_io = IO::Memory.new(certificate.to_s)
-              filename = "file"
-            end
-            headers = HTTP::Headers{
-              "Content-Disposition" => "form-data; name=\"certificate\"; filename=\"#{filename}\"",
-              "Content-Type" => "application/octet-stream"
-            }
-            builder.body_part(headers, file_io)
-          end
-          if ip_address
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"ip_address\""}
-            builder.body_part(headers, ip_address.to_s)
-          end
-          if max_connections
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"max_connections\""}
-            builder.body_part(headers, max_connections.to_s)
-          end
-          if allowed_updates
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"allowed_updates\""}
-            builder.body_part(headers, allowed_updates.to_s)
-          end
-          if drop_pending_updates
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"drop_pending_updates\""}
-            builder.body_part(headers, drop_pending_updates.to_s)
-          end
-          if secret_token
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"secret_token\""}
-            builder.body_part(headers, secret_token.to_s)
-          end
+      def set_webhook(url : String, certificate : Telegram::InputFile | File | IO? = nil, ip_address : String? = nil, max_connections : Int32? = nil, allowed_updates : Array(String)? = nil, drop_pending_updates : Bool? = nil, secret_token : String? = nil) : Bool
+        # Collect parameters for file detection
+        params_hash = {
+          "url" => url,
+          "certificate" => certificate,
+          "ip_address" => ip_address,
+          "max_connections" => max_connections,
+          "allowed_updates" => allowed_updates,
+          "drop_pending_updates" => drop_pending_updates,
+          "secret_token" => secret_token,
+        }
+
+        # Runtime detection: check if any parameters contain actual file data
+        has_files = contains_file_data?(params_hash)
+
+        if has_files
+          # Use multipart form data for file uploads
+          boundary, form_body = build_multipart_form_with_files(params_hash)
+          
+          # Make HTTP request with multipart form using enhanced client
+          url = "#{@api_url}/bot#{@token}/setWebhook"
+          response = @http_client.post_multipart(url, {boundary, form_body})
+        else
+          # Use JSON request when no files are present
+          params = build_request_hash_from_hash(params_hash)
+          
+          # Make HTTP request using enhanced client
+          url = "#{@api_url}/bot#{@token}/setWebhook"
+          response = @http_client.post(url,
+            headers: HTTP::Headers{"Content-Type" => "application/json"},
+            body: params.to_json
+          )
         end
 
-        # Make HTTP request with multipart form
-        url = "#{@api_url}/bot#{@token}/setWebhook"
-        response = HTTP::Client.post(url,
-          headers: HTTP::Headers{"Content-Type" => "multipart/form-data; boundary=#{boundary}"},
-          body: form_body
-        )
-
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"].as_bool
+        result_data = json_response["result"]
+        Bool.from_json(result_data.to_json)
       end
 
       # deleteWebhook
@@ -136,31 +151,31 @@ module Telegram
       # Returns: Bool
       # See: https://core.telegram.org/bots/api#deletewebhook
       def delete_webhook(drop_pending_updates : Bool? = nil) : Bool
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["drop_pending_updates"] = JSON::Any.new(drop_pending_updates) if drop_pending_updates
+        # Collect parameters for file detection
+        params_hash = {
+          "drop_pending_updates" => drop_pending_updates,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          drop_pending_updates: drop_pending_updates,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/deleteWebhook"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"].as_bool
+        result_data = json_response["result"]
+        Bool.from_json(result_data.to_json)
       end
 
       # getWebhookInfo
@@ -169,30 +184,24 @@ module Telegram
       # Returns: WebhookInfo
       # See: https://core.telegram.org/bots/api#getwebhookinfo
       def get_webhook_info() : WebhookInfo
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(        )
 
-        # Make HTTP request
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/getWebhookInfo"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        WebhookInfo.from_json(json_response["result"].to_json)
+        result_data = json_response["result"]
+        WebhookInfo.from_json(result_data.to_json)
       end
 
       # getMe
@@ -201,30 +210,24 @@ module Telegram
       # Returns: User
       # See: https://core.telegram.org/bots/api#getme
       def get_me() : User
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(        )
 
-        # Make HTTP request
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/getMe"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        User.from_json(json_response["result"].to_json)
+        result_data = json_response["result"]
+        User.from_json(result_data.to_json)
       end
 
       # logOut
@@ -233,30 +236,24 @@ module Telegram
       # Returns: Bool
       # See: https://core.telegram.org/bots/api#logout
       def log_out() : Bool
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(        )
 
-        # Make HTTP request
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/logOut"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"].as_bool
+        result_data = json_response["result"]
+        Bool.from_json(result_data.to_json)
       end
 
       # close
@@ -265,30 +262,24 @@ module Telegram
       # Returns: Bool
       # See: https://core.telegram.org/bots/api#close
       def close() : Bool
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(        )
 
-        # Make HTTP request
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/close"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"].as_bool
+        result_data = json_response["result"]
+        Bool.from_json(result_data.to_json)
       end
 
       # sendMessage
@@ -297,45 +288,59 @@ module Telegram
       # Returns: Message
       # See: https://core.telegram.org/bots/api#sendmessage
       def send_message(chat_id : Int32 | String, text : String, business_connection_id : String? = nil, message_thread_id : Int32? = nil, direct_messages_topic_id : Int32? = nil, parse_mode : String? = nil, entities : Array(MessageEntity)? = nil, link_preview_options : LinkPreviewOptions? = nil, disable_notification : Bool? = nil, protect_content : Bool? = nil, allow_paid_broadcast : Bool? = nil, message_effect_id : String? = nil, suggested_post_parameters : SuggestedPostParameters? = nil, reply_parameters : ReplyParameters? = nil, reply_markup : InlineKeyboardMarkup | ReplyKeyboardMarkup | ReplyKeyboardRemove | ForceReply? = nil) : Message
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["business_connection_id"] = JSON::Any.new(business_connection_id) if business_connection_id
-        params["chat_id"] = JSON::Any.new(chat_id) if chat_id
-        params["message_thread_id"] = JSON::Any.new(message_thread_id) if message_thread_id
-        params["direct_messages_topic_id"] = JSON::Any.new(direct_messages_topic_id) if direct_messages_topic_id
-        params["text"] = JSON::Any.new(text) if text
-        params["parse_mode"] = JSON::Any.new(parse_mode) if parse_mode
-        params["entities"] = JSON::Any.new(entities) if entities
-        params["link_preview_options"] = JSON::Any.new(link_preview_options) if link_preview_options
-        params["disable_notification"] = JSON::Any.new(disable_notification) if disable_notification
-        params["protect_content"] = JSON::Any.new(protect_content) if protect_content
-        params["allow_paid_broadcast"] = JSON::Any.new(allow_paid_broadcast) if allow_paid_broadcast
-        params["message_effect_id"] = JSON::Any.new(message_effect_id) if message_effect_id
-        params["suggested_post_parameters"] = JSON::Any.new(suggested_post_parameters) if suggested_post_parameters
-        params["reply_parameters"] = JSON::Any.new(reply_parameters) if reply_parameters
-        params["reply_markup"] = JSON::Any.new(reply_markup) if reply_markup
+        # Collect parameters for file detection
+        params_hash = {
+          "business_connection_id" => business_connection_id,
+          "chat_id" => chat_id,
+          "message_thread_id" => message_thread_id,
+          "direct_messages_topic_id" => direct_messages_topic_id,
+          "text" => text,
+          "parse_mode" => parse_mode,
+          "entities" => entities,
+          "link_preview_options" => link_preview_options,
+          "disable_notification" => disable_notification,
+          "protect_content" => protect_content,
+          "allow_paid_broadcast" => allow_paid_broadcast,
+          "message_effect_id" => message_effect_id,
+          "suggested_post_parameters" => suggested_post_parameters,
+          "reply_parameters" => reply_parameters,
+          "reply_markup" => reply_markup,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          business_connection_id: business_connection_id,
+          chat_id: chat_id,
+          message_thread_id: message_thread_id,
+          direct_messages_topic_id: direct_messages_topic_id,
+          text: text,
+          parse_mode: parse_mode,
+          entities: entities,
+          link_preview_options: link_preview_options,
+          disable_notification: disable_notification,
+          protect_content: protect_content,
+          allow_paid_broadcast: allow_paid_broadcast,
+          message_effect_id: message_effect_id,
+          suggested_post_parameters: suggested_post_parameters,
+          reply_parameters: reply_parameters,
+          reply_markup: reply_markup,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/sendMessage"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        Message.from_json(json_response["result"].to_json)
+        result_data = json_response["result"]
+        Message.from_json(result_data.to_json)
       end
 
       # forwardMessage
@@ -344,39 +349,47 @@ module Telegram
       # Returns: Message
       # See: https://core.telegram.org/bots/api#forwardmessage
       def forward_message(chat_id : Int32 | String, from_chat_id : Int32 | String, message_id : Int32, message_thread_id : Int32? = nil, direct_messages_topic_id : Int32? = nil, video_start_timestamp : Int32? = nil, disable_notification : Bool? = nil, protect_content : Bool? = nil, suggested_post_parameters : SuggestedPostParameters? = nil) : Message
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["chat_id"] = JSON::Any.new(chat_id) if chat_id
-        params["message_thread_id"] = JSON::Any.new(message_thread_id) if message_thread_id
-        params["direct_messages_topic_id"] = JSON::Any.new(direct_messages_topic_id) if direct_messages_topic_id
-        params["from_chat_id"] = JSON::Any.new(from_chat_id) if from_chat_id
-        params["video_start_timestamp"] = JSON::Any.new(video_start_timestamp) if video_start_timestamp
-        params["disable_notification"] = JSON::Any.new(disable_notification) if disable_notification
-        params["protect_content"] = JSON::Any.new(protect_content) if protect_content
-        params["suggested_post_parameters"] = JSON::Any.new(suggested_post_parameters) if suggested_post_parameters
-        params["message_id"] = JSON::Any.new(message_id) if message_id
+        # Collect parameters for file detection
+        params_hash = {
+          "chat_id" => chat_id,
+          "message_thread_id" => message_thread_id,
+          "direct_messages_topic_id" => direct_messages_topic_id,
+          "from_chat_id" => from_chat_id,
+          "video_start_timestamp" => video_start_timestamp,
+          "disable_notification" => disable_notification,
+          "protect_content" => protect_content,
+          "suggested_post_parameters" => suggested_post_parameters,
+          "message_id" => message_id,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          chat_id: chat_id,
+          message_thread_id: message_thread_id,
+          direct_messages_topic_id: direct_messages_topic_id,
+          from_chat_id: from_chat_id,
+          video_start_timestamp: video_start_timestamp,
+          disable_notification: disable_notification,
+          protect_content: protect_content,
+          suggested_post_parameters: suggested_post_parameters,
+          message_id: message_id,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/forwardMessage"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        Message.from_json(json_response["result"].to_json)
+        result_data = json_response["result"]
+        Message.from_json(result_data.to_json)
       end
 
       # forwardMessages
@@ -385,37 +398,43 @@ module Telegram
       # Returns: Array(MessageId)
       # See: https://core.telegram.org/bots/api#forwardmessages
       def forward_messages(chat_id : Int32 | String, from_chat_id : Int32 | String, message_ids : Array(Int32), message_thread_id : Int32? = nil, direct_messages_topic_id : Int32? = nil, disable_notification : Bool? = nil, protect_content : Bool? = nil) : Array(MessageId)
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["chat_id"] = JSON::Any.new(chat_id) if chat_id
-        params["message_thread_id"] = JSON::Any.new(message_thread_id) if message_thread_id
-        params["direct_messages_topic_id"] = JSON::Any.new(direct_messages_topic_id) if direct_messages_topic_id
-        params["from_chat_id"] = JSON::Any.new(from_chat_id) if from_chat_id
-        params["message_ids"] = JSON::Any.new(message_ids) if message_ids
-        params["disable_notification"] = JSON::Any.new(disable_notification) if disable_notification
-        params["protect_content"] = JSON::Any.new(protect_content) if protect_content
+        # Collect parameters for file detection
+        params_hash = {
+          "chat_id" => chat_id,
+          "message_thread_id" => message_thread_id,
+          "direct_messages_topic_id" => direct_messages_topic_id,
+          "from_chat_id" => from_chat_id,
+          "message_ids" => message_ids,
+          "disable_notification" => disable_notification,
+          "protect_content" => protect_content,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          chat_id: chat_id,
+          message_thread_id: message_thread_id,
+          direct_messages_topic_id: direct_messages_topic_id,
+          from_chat_id: from_chat_id,
+          message_ids: message_ids,
+          disable_notification: disable_notification,
+          protect_content: protect_content,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/forwardMessages"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"].as_a.map { |item| MessageId.from_json(item.to_json) }
+        result_data = json_response["result"]
+        Array(MessageId).from_json(result_data.to_json)
       end
 
       # copyMessage
@@ -424,46 +443,61 @@ module Telegram
       # Returns: MessageId
       # See: https://core.telegram.org/bots/api#copymessage
       def copy_message(chat_id : Int32 | String, from_chat_id : Int32 | String, message_id : Int32, message_thread_id : Int32? = nil, direct_messages_topic_id : Int32? = nil, video_start_timestamp : Int32? = nil, caption : String? = nil, parse_mode : String? = nil, caption_entities : Array(MessageEntity)? = nil, show_caption_above_media : Bool? = nil, disable_notification : Bool? = nil, protect_content : Bool? = nil, allow_paid_broadcast : Bool? = nil, suggested_post_parameters : SuggestedPostParameters? = nil, reply_parameters : ReplyParameters? = nil, reply_markup : InlineKeyboardMarkup | ReplyKeyboardMarkup | ReplyKeyboardRemove | ForceReply? = nil) : MessageId
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["chat_id"] = JSON::Any.new(chat_id) if chat_id
-        params["message_thread_id"] = JSON::Any.new(message_thread_id) if message_thread_id
-        params["direct_messages_topic_id"] = JSON::Any.new(direct_messages_topic_id) if direct_messages_topic_id
-        params["from_chat_id"] = JSON::Any.new(from_chat_id) if from_chat_id
-        params["message_id"] = JSON::Any.new(message_id) if message_id
-        params["video_start_timestamp"] = JSON::Any.new(video_start_timestamp) if video_start_timestamp
-        params["caption"] = JSON::Any.new(caption) if caption
-        params["parse_mode"] = JSON::Any.new(parse_mode) if parse_mode
-        params["caption_entities"] = JSON::Any.new(caption_entities) if caption_entities
-        params["show_caption_above_media"] = JSON::Any.new(show_caption_above_media) if show_caption_above_media
-        params["disable_notification"] = JSON::Any.new(disable_notification) if disable_notification
-        params["protect_content"] = JSON::Any.new(protect_content) if protect_content
-        params["allow_paid_broadcast"] = JSON::Any.new(allow_paid_broadcast) if allow_paid_broadcast
-        params["suggested_post_parameters"] = JSON::Any.new(suggested_post_parameters) if suggested_post_parameters
-        params["reply_parameters"] = JSON::Any.new(reply_parameters) if reply_parameters
-        params["reply_markup"] = JSON::Any.new(reply_markup) if reply_markup
+        # Collect parameters for file detection
+        params_hash = {
+          "chat_id" => chat_id,
+          "message_thread_id" => message_thread_id,
+          "direct_messages_topic_id" => direct_messages_topic_id,
+          "from_chat_id" => from_chat_id,
+          "message_id" => message_id,
+          "video_start_timestamp" => video_start_timestamp,
+          "caption" => caption,
+          "parse_mode" => parse_mode,
+          "caption_entities" => caption_entities,
+          "show_caption_above_media" => show_caption_above_media,
+          "disable_notification" => disable_notification,
+          "protect_content" => protect_content,
+          "allow_paid_broadcast" => allow_paid_broadcast,
+          "suggested_post_parameters" => suggested_post_parameters,
+          "reply_parameters" => reply_parameters,
+          "reply_markup" => reply_markup,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          chat_id: chat_id,
+          message_thread_id: message_thread_id,
+          direct_messages_topic_id: direct_messages_topic_id,
+          from_chat_id: from_chat_id,
+          message_id: message_id,
+          video_start_timestamp: video_start_timestamp,
+          caption: caption,
+          parse_mode: parse_mode,
+          caption_entities: caption_entities,
+          show_caption_above_media: show_caption_above_media,
+          disable_notification: disable_notification,
+          protect_content: protect_content,
+          allow_paid_broadcast: allow_paid_broadcast,
+          suggested_post_parameters: suggested_post_parameters,
+          reply_parameters: reply_parameters,
+          reply_markup: reply_markup,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/copyMessage"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        MessageId.from_json(json_response["result"].to_json)
+        result_data = json_response["result"]
+        MessageId.from_json(result_data.to_json)
       end
 
       # copyMessages
@@ -472,38 +506,45 @@ module Telegram
       # Returns: Array(MessageId)
       # See: https://core.telegram.org/bots/api#copymessages
       def copy_messages(chat_id : Int32 | String, from_chat_id : Int32 | String, message_ids : Array(Int32), message_thread_id : Int32? = nil, direct_messages_topic_id : Int32? = nil, disable_notification : Bool? = nil, protect_content : Bool? = nil, remove_caption : Bool? = nil) : Array(MessageId)
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["chat_id"] = JSON::Any.new(chat_id) if chat_id
-        params["message_thread_id"] = JSON::Any.new(message_thread_id) if message_thread_id
-        params["direct_messages_topic_id"] = JSON::Any.new(direct_messages_topic_id) if direct_messages_topic_id
-        params["from_chat_id"] = JSON::Any.new(from_chat_id) if from_chat_id
-        params["message_ids"] = JSON::Any.new(message_ids) if message_ids
-        params["disable_notification"] = JSON::Any.new(disable_notification) if disable_notification
-        params["protect_content"] = JSON::Any.new(protect_content) if protect_content
-        params["remove_caption"] = JSON::Any.new(remove_caption) if remove_caption
+        # Collect parameters for file detection
+        params_hash = {
+          "chat_id" => chat_id,
+          "message_thread_id" => message_thread_id,
+          "direct_messages_topic_id" => direct_messages_topic_id,
+          "from_chat_id" => from_chat_id,
+          "message_ids" => message_ids,
+          "disable_notification" => disable_notification,
+          "protect_content" => protect_content,
+          "remove_caption" => remove_caption,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          chat_id: chat_id,
+          message_thread_id: message_thread_id,
+          direct_messages_topic_id: direct_messages_topic_id,
+          from_chat_id: from_chat_id,
+          message_ids: message_ids,
+          disable_notification: disable_notification,
+          protect_content: protect_content,
+          remove_caption: remove_caption,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/copyMessages"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"].as_a.map { |item| MessageId.from_json(item.to_json) }
+        result_data = json_response["result"]
+        Array(MessageId).from_json(result_data.to_json)
       end
 
       # sendPhoto
@@ -511,114 +552,58 @@ module Telegram
       #
       # Returns: Message
       # See: https://core.telegram.org/bots/api#sendphoto
-      def send_photo(chat_id : Int32 | String, photo : File | IO | String, business_connection_id : String? = nil, message_thread_id : Int32? = nil, direct_messages_topic_id : Int32? = nil, caption : String? = nil, parse_mode : String? = nil, caption_entities : Array(MessageEntity)? = nil, show_caption_above_media : Bool? = nil, has_spoiler : Bool? = nil, disable_notification : Bool? = nil, protect_content : Bool? = nil, allow_paid_broadcast : Bool? = nil, message_effect_id : String? = nil, suggested_post_parameters : SuggestedPostParameters? = nil, reply_parameters : ReplyParameters? = nil, reply_markup : InlineKeyboardMarkup | ReplyKeyboardMarkup | ReplyKeyboardRemove | ForceReply? = nil) : Message
-        # Build multipart form data for file upload
-        boundary = MIME::Multipart.generate_boundary
-        form_body = MIME::Multipart.build(boundary) do |builder|
-          if business_connection_id
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"business_connection_id\""}
-            builder.body_part(headers, business_connection_id.to_s)
-          end
-          if chat_id
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"chat_id\""}
-            builder.body_part(headers, chat_id.to_s)
-          end
-          if message_thread_id
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"message_thread_id\""}
-            builder.body_part(headers, message_thread_id.to_s)
-          end
-          if direct_messages_topic_id
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"direct_messages_topic_id\""}
-            builder.body_part(headers, direct_messages_topic_id.to_s)
-          end
-          if photo
-            if photo.is_a?(File)
-              file_io = photo
-              filename = File.basename(photo.path)
-            elsif photo.is_a?(IO)
-              file_io = photo
-              filename = "file"
-            else
-              file_io = IO::Memory.new(photo.to_s)
-              filename = "file"
-            end
-            headers = HTTP::Headers{
-              "Content-Disposition" => "form-data; name=\"photo\"; filename=\"#{filename}\"",
-              "Content-Type" => "application/octet-stream"
-            }
-            builder.body_part(headers, file_io)
-          end
-          if caption
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"caption\""}
-            builder.body_part(headers, caption.to_s)
-          end
-          if parse_mode
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"parse_mode\""}
-            builder.body_part(headers, parse_mode.to_s)
-          end
-          if caption_entities
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"caption_entities\""}
-            builder.body_part(headers, caption_entities.to_s)
-          end
-          if show_caption_above_media
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"show_caption_above_media\""}
-            builder.body_part(headers, show_caption_above_media.to_s)
-          end
-          if has_spoiler
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"has_spoiler\""}
-            builder.body_part(headers, has_spoiler.to_s)
-          end
-          if disable_notification
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"disable_notification\""}
-            builder.body_part(headers, disable_notification.to_s)
-          end
-          if protect_content
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"protect_content\""}
-            builder.body_part(headers, protect_content.to_s)
-          end
-          if allow_paid_broadcast
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"allow_paid_broadcast\""}
-            builder.body_part(headers, allow_paid_broadcast.to_s)
-          end
-          if message_effect_id
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"message_effect_id\""}
-            builder.body_part(headers, message_effect_id.to_s)
-          end
-          if suggested_post_parameters
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"suggested_post_parameters\""}
-            builder.body_part(headers, suggested_post_parameters.to_s)
-          end
-          if reply_parameters
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"reply_parameters\""}
-            builder.body_part(headers, reply_parameters.to_s)
-          end
-          if reply_markup
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"reply_markup\""}
-            builder.body_part(headers, reply_markup.to_s)
-          end
+      def send_photo(chat_id : Int32 | String, photo : Telegram::InputFile | File | IO | String, business_connection_id : String? = nil, message_thread_id : Int32? = nil, direct_messages_topic_id : Int32? = nil, caption : String? = nil, parse_mode : String? = nil, caption_entities : Array(MessageEntity)? = nil, show_caption_above_media : Bool? = nil, has_spoiler : Bool? = nil, disable_notification : Bool? = nil, protect_content : Bool? = nil, allow_paid_broadcast : Bool? = nil, message_effect_id : String? = nil, suggested_post_parameters : SuggestedPostParameters? = nil, reply_parameters : ReplyParameters? = nil, reply_markup : InlineKeyboardMarkup | ReplyKeyboardMarkup | ReplyKeyboardRemove | ForceReply? = nil) : Message
+        # Collect parameters for file detection
+        params_hash = {
+          "business_connection_id" => business_connection_id,
+          "chat_id" => chat_id,
+          "message_thread_id" => message_thread_id,
+          "direct_messages_topic_id" => direct_messages_topic_id,
+          "photo" => photo,
+          "caption" => caption,
+          "parse_mode" => parse_mode,
+          "caption_entities" => caption_entities,
+          "show_caption_above_media" => show_caption_above_media,
+          "has_spoiler" => has_spoiler,
+          "disable_notification" => disable_notification,
+          "protect_content" => protect_content,
+          "allow_paid_broadcast" => allow_paid_broadcast,
+          "message_effect_id" => message_effect_id,
+          "suggested_post_parameters" => suggested_post_parameters,
+          "reply_parameters" => reply_parameters,
+          "reply_markup" => reply_markup,
+        }
+
+        # Runtime detection: check if any parameters contain actual file data
+        has_files = contains_file_data?(params_hash)
+
+        if has_files
+          # Use multipart form data for file uploads
+          boundary, form_body = build_multipart_form_with_files(params_hash)
+          
+          # Make HTTP request with multipart form using enhanced client
+          url = "#{@api_url}/bot#{@token}/sendPhoto"
+          response = @http_client.post_multipart(url, {boundary, form_body})
+        else
+          # Use JSON request when no files are present
+          params = build_request_hash_from_hash(params_hash)
+          
+          # Make HTTP request using enhanced client
+          url = "#{@api_url}/bot#{@token}/sendPhoto"
+          response = @http_client.post(url,
+            headers: HTTP::Headers{"Content-Type" => "application/json"},
+            body: params.to_json
+          )
         end
 
-        # Make HTTP request with multipart form
-        url = "#{@api_url}/bot#{@token}/sendPhoto"
-        response = HTTP::Client.post(url,
-          headers: HTTP::Headers{"Content-Type" => "multipart/form-data; boundary=#{boundary}"},
-          body: form_body
-        )
-
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        Message.from_json(json_response["result"].to_json)
+        result_data = json_response["result"]
+        Message.from_json(result_data.to_json)
       end
 
       # sendAudio
@@ -627,135 +612,60 @@ module Telegram
       #
       # Returns: Message
       # See: https://core.telegram.org/bots/api#sendaudio
-      def send_audio(chat_id : Int32 | String, audio : File | IO | String, business_connection_id : String? = nil, message_thread_id : Int32? = nil, direct_messages_topic_id : Int32? = nil, caption : String? = nil, parse_mode : String? = nil, caption_entities : Array(MessageEntity)? = nil, duration : Int32? = nil, performer : String? = nil, title : String? = nil, thumbnail : File | IO | String? = nil, disable_notification : Bool? = nil, protect_content : Bool? = nil, allow_paid_broadcast : Bool? = nil, message_effect_id : String? = nil, suggested_post_parameters : SuggestedPostParameters? = nil, reply_parameters : ReplyParameters? = nil, reply_markup : InlineKeyboardMarkup | ReplyKeyboardMarkup | ReplyKeyboardRemove | ForceReply? = nil) : Message
-        # Build multipart form data for file upload
-        boundary = MIME::Multipart.generate_boundary
-        form_body = MIME::Multipart.build(boundary) do |builder|
-          if business_connection_id
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"business_connection_id\""}
-            builder.body_part(headers, business_connection_id.to_s)
-          end
-          if chat_id
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"chat_id\""}
-            builder.body_part(headers, chat_id.to_s)
-          end
-          if message_thread_id
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"message_thread_id\""}
-            builder.body_part(headers, message_thread_id.to_s)
-          end
-          if direct_messages_topic_id
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"direct_messages_topic_id\""}
-            builder.body_part(headers, direct_messages_topic_id.to_s)
-          end
-          if audio
-            if audio.is_a?(File)
-              file_io = audio
-              filename = File.basename(audio.path)
-            elsif audio.is_a?(IO)
-              file_io = audio
-              filename = "file"
-            else
-              file_io = IO::Memory.new(audio.to_s)
-              filename = "file"
-            end
-            headers = HTTP::Headers{
-              "Content-Disposition" => "form-data; name=\"audio\"; filename=\"#{filename}\"",
-              "Content-Type" => "application/octet-stream"
-            }
-            builder.body_part(headers, file_io)
-          end
-          if caption
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"caption\""}
-            builder.body_part(headers, caption.to_s)
-          end
-          if parse_mode
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"parse_mode\""}
-            builder.body_part(headers, parse_mode.to_s)
-          end
-          if caption_entities
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"caption_entities\""}
-            builder.body_part(headers, caption_entities.to_s)
-          end
-          if duration
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"duration\""}
-            builder.body_part(headers, duration.to_s)
-          end
-          if performer
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"performer\""}
-            builder.body_part(headers, performer.to_s)
-          end
-          if title
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"title\""}
-            builder.body_part(headers, title.to_s)
-          end
-          if thumbnail
-            if thumbnail.is_a?(File)
-              file_io = thumbnail
-              filename = File.basename(thumbnail.path)
-            elsif thumbnail.is_a?(IO)
-              file_io = thumbnail
-              filename = "file"
-            else
-              file_io = IO::Memory.new(thumbnail.to_s)
-              filename = "file"
-            end
-            headers = HTTP::Headers{
-              "Content-Disposition" => "form-data; name=\"thumbnail\"; filename=\"#{filename}\"",
-              "Content-Type" => "application/octet-stream"
-            }
-            builder.body_part(headers, file_io)
-          end
-          if disable_notification
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"disable_notification\""}
-            builder.body_part(headers, disable_notification.to_s)
-          end
-          if protect_content
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"protect_content\""}
-            builder.body_part(headers, protect_content.to_s)
-          end
-          if allow_paid_broadcast
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"allow_paid_broadcast\""}
-            builder.body_part(headers, allow_paid_broadcast.to_s)
-          end
-          if message_effect_id
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"message_effect_id\""}
-            builder.body_part(headers, message_effect_id.to_s)
-          end
-          if suggested_post_parameters
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"suggested_post_parameters\""}
-            builder.body_part(headers, suggested_post_parameters.to_s)
-          end
-          if reply_parameters
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"reply_parameters\""}
-            builder.body_part(headers, reply_parameters.to_s)
-          end
-          if reply_markup
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"reply_markup\""}
-            builder.body_part(headers, reply_markup.to_s)
-          end
+      def send_audio(chat_id : Int32 | String, audio : Telegram::InputFile | File | IO | String, business_connection_id : String? = nil, message_thread_id : Int32? = nil, direct_messages_topic_id : Int32? = nil, caption : String? = nil, parse_mode : String? = nil, caption_entities : Array(MessageEntity)? = nil, duration : Int32? = nil, performer : String? = nil, title : String? = nil, thumbnail : Telegram::InputFile | File | IO | String? = nil, disable_notification : Bool? = nil, protect_content : Bool? = nil, allow_paid_broadcast : Bool? = nil, message_effect_id : String? = nil, suggested_post_parameters : SuggestedPostParameters? = nil, reply_parameters : ReplyParameters? = nil, reply_markup : InlineKeyboardMarkup | ReplyKeyboardMarkup | ReplyKeyboardRemove | ForceReply? = nil) : Message
+        # Collect parameters for file detection
+        params_hash = {
+          "business_connection_id" => business_connection_id,
+          "chat_id" => chat_id,
+          "message_thread_id" => message_thread_id,
+          "direct_messages_topic_id" => direct_messages_topic_id,
+          "audio" => audio,
+          "caption" => caption,
+          "parse_mode" => parse_mode,
+          "caption_entities" => caption_entities,
+          "duration" => duration,
+          "performer" => performer,
+          "title" => title,
+          "thumbnail" => thumbnail,
+          "disable_notification" => disable_notification,
+          "protect_content" => protect_content,
+          "allow_paid_broadcast" => allow_paid_broadcast,
+          "message_effect_id" => message_effect_id,
+          "suggested_post_parameters" => suggested_post_parameters,
+          "reply_parameters" => reply_parameters,
+          "reply_markup" => reply_markup,
+        }
+
+        # Runtime detection: check if any parameters contain actual file data
+        has_files = contains_file_data?(params_hash)
+
+        if has_files
+          # Use multipart form data for file uploads
+          boundary, form_body = build_multipart_form_with_files(params_hash)
+          
+          # Make HTTP request with multipart form using enhanced client
+          url = "#{@api_url}/bot#{@token}/sendAudio"
+          response = @http_client.post_multipart(url, {boundary, form_body})
+        else
+          # Use JSON request when no files are present
+          params = build_request_hash_from_hash(params_hash)
+          
+          # Make HTTP request using enhanced client
+          url = "#{@api_url}/bot#{@token}/sendAudio"
+          response = @http_client.post(url,
+            headers: HTTP::Headers{"Content-Type" => "application/json"},
+            body: params.to_json
+          )
         end
 
-        # Make HTTP request with multipart form
-        url = "#{@api_url}/bot#{@token}/sendAudio"
-        response = HTTP::Client.post(url,
-          headers: HTTP::Headers{"Content-Type" => "multipart/form-data; boundary=#{boundary}"},
-          body: form_body
-        )
-
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        Message.from_json(json_response["result"].to_json)
+        result_data = json_response["result"]
+        Message.from_json(result_data.to_json)
       end
 
       # sendDocument
@@ -763,127 +673,58 @@ module Telegram
       #
       # Returns: Message
       # See: https://core.telegram.org/bots/api#senddocument
-      def send_document(chat_id : Int32 | String, document : File | IO | String, business_connection_id : String? = nil, message_thread_id : Int32? = nil, direct_messages_topic_id : Int32? = nil, thumbnail : File | IO | String? = nil, caption : String? = nil, parse_mode : String? = nil, caption_entities : Array(MessageEntity)? = nil, disable_content_type_detection : Bool? = nil, disable_notification : Bool? = nil, protect_content : Bool? = nil, allow_paid_broadcast : Bool? = nil, message_effect_id : String? = nil, suggested_post_parameters : SuggestedPostParameters? = nil, reply_parameters : ReplyParameters? = nil, reply_markup : InlineKeyboardMarkup | ReplyKeyboardMarkup | ReplyKeyboardRemove | ForceReply? = nil) : Message
-        # Build multipart form data for file upload
-        boundary = MIME::Multipart.generate_boundary
-        form_body = MIME::Multipart.build(boundary) do |builder|
-          if business_connection_id
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"business_connection_id\""}
-            builder.body_part(headers, business_connection_id.to_s)
-          end
-          if chat_id
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"chat_id\""}
-            builder.body_part(headers, chat_id.to_s)
-          end
-          if message_thread_id
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"message_thread_id\""}
-            builder.body_part(headers, message_thread_id.to_s)
-          end
-          if direct_messages_topic_id
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"direct_messages_topic_id\""}
-            builder.body_part(headers, direct_messages_topic_id.to_s)
-          end
-          if document
-            if document.is_a?(File)
-              file_io = document
-              filename = File.basename(document.path)
-            elsif document.is_a?(IO)
-              file_io = document
-              filename = "file"
-            else
-              file_io = IO::Memory.new(document.to_s)
-              filename = "file"
-            end
-            headers = HTTP::Headers{
-              "Content-Disposition" => "form-data; name=\"document\"; filename=\"#{filename}\"",
-              "Content-Type" => "application/octet-stream"
-            }
-            builder.body_part(headers, file_io)
-          end
-          if thumbnail
-            if thumbnail.is_a?(File)
-              file_io = thumbnail
-              filename = File.basename(thumbnail.path)
-            elsif thumbnail.is_a?(IO)
-              file_io = thumbnail
-              filename = "file"
-            else
-              file_io = IO::Memory.new(thumbnail.to_s)
-              filename = "file"
-            end
-            headers = HTTP::Headers{
-              "Content-Disposition" => "form-data; name=\"thumbnail\"; filename=\"#{filename}\"",
-              "Content-Type" => "application/octet-stream"
-            }
-            builder.body_part(headers, file_io)
-          end
-          if caption
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"caption\""}
-            builder.body_part(headers, caption.to_s)
-          end
-          if parse_mode
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"parse_mode\""}
-            builder.body_part(headers, parse_mode.to_s)
-          end
-          if caption_entities
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"caption_entities\""}
-            builder.body_part(headers, caption_entities.to_s)
-          end
-          if disable_content_type_detection
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"disable_content_type_detection\""}
-            builder.body_part(headers, disable_content_type_detection.to_s)
-          end
-          if disable_notification
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"disable_notification\""}
-            builder.body_part(headers, disable_notification.to_s)
-          end
-          if protect_content
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"protect_content\""}
-            builder.body_part(headers, protect_content.to_s)
-          end
-          if allow_paid_broadcast
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"allow_paid_broadcast\""}
-            builder.body_part(headers, allow_paid_broadcast.to_s)
-          end
-          if message_effect_id
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"message_effect_id\""}
-            builder.body_part(headers, message_effect_id.to_s)
-          end
-          if suggested_post_parameters
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"suggested_post_parameters\""}
-            builder.body_part(headers, suggested_post_parameters.to_s)
-          end
-          if reply_parameters
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"reply_parameters\""}
-            builder.body_part(headers, reply_parameters.to_s)
-          end
-          if reply_markup
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"reply_markup\""}
-            builder.body_part(headers, reply_markup.to_s)
-          end
+      def send_document(chat_id : Int32 | String, document : Telegram::InputFile | File | IO | String, business_connection_id : String? = nil, message_thread_id : Int32? = nil, direct_messages_topic_id : Int32? = nil, thumbnail : Telegram::InputFile | File | IO | String? = nil, caption : String? = nil, parse_mode : String? = nil, caption_entities : Array(MessageEntity)? = nil, disable_content_type_detection : Bool? = nil, disable_notification : Bool? = nil, protect_content : Bool? = nil, allow_paid_broadcast : Bool? = nil, message_effect_id : String? = nil, suggested_post_parameters : SuggestedPostParameters? = nil, reply_parameters : ReplyParameters? = nil, reply_markup : InlineKeyboardMarkup | ReplyKeyboardMarkup | ReplyKeyboardRemove | ForceReply? = nil) : Message
+        # Collect parameters for file detection
+        params_hash = {
+          "business_connection_id" => business_connection_id,
+          "chat_id" => chat_id,
+          "message_thread_id" => message_thread_id,
+          "direct_messages_topic_id" => direct_messages_topic_id,
+          "document" => document,
+          "thumbnail" => thumbnail,
+          "caption" => caption,
+          "parse_mode" => parse_mode,
+          "caption_entities" => caption_entities,
+          "disable_content_type_detection" => disable_content_type_detection,
+          "disable_notification" => disable_notification,
+          "protect_content" => protect_content,
+          "allow_paid_broadcast" => allow_paid_broadcast,
+          "message_effect_id" => message_effect_id,
+          "suggested_post_parameters" => suggested_post_parameters,
+          "reply_parameters" => reply_parameters,
+          "reply_markup" => reply_markup,
+        }
+
+        # Runtime detection: check if any parameters contain actual file data
+        has_files = contains_file_data?(params_hash)
+
+        if has_files
+          # Use multipart form data for file uploads
+          boundary, form_body = build_multipart_form_with_files(params_hash)
+          
+          # Make HTTP request with multipart form using enhanced client
+          url = "#{@api_url}/bot#{@token}/sendDocument"
+          response = @http_client.post_multipart(url, {boundary, form_body})
+        else
+          # Use JSON request when no files are present
+          params = build_request_hash_from_hash(params_hash)
+          
+          # Make HTTP request using enhanced client
+          url = "#{@api_url}/bot#{@token}/sendDocument"
+          response = @http_client.post(url,
+            headers: HTTP::Headers{"Content-Type" => "application/json"},
+            body: params.to_json
+          )
         end
 
-        # Make HTTP request with multipart form
-        url = "#{@api_url}/bot#{@token}/sendDocument"
-        response = HTTP::Client.post(url,
-          headers: HTTP::Headers{"Content-Type" => "multipart/form-data; boundary=#{boundary}"},
-          body: form_body
-        )
-
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        Message.from_json(json_response["result"].to_json)
+        result_data = json_response["result"]
+        Message.from_json(result_data.to_json)
       end
 
       # sendVideo
@@ -891,168 +732,65 @@ module Telegram
       #
       # Returns: Message
       # See: https://core.telegram.org/bots/api#sendvideo
-      def send_video(chat_id : Int32 | String, video : File | IO | String, business_connection_id : String? = nil, message_thread_id : Int32? = nil, direct_messages_topic_id : Int32? = nil, duration : Int32? = nil, width : Int32? = nil, height : Int32? = nil, thumbnail : File | IO | String? = nil, cover : File | IO | String? = nil, start_timestamp : Int32? = nil, caption : String? = nil, parse_mode : String? = nil, caption_entities : Array(MessageEntity)? = nil, show_caption_above_media : Bool? = nil, has_spoiler : Bool? = nil, supports_streaming : Bool? = nil, disable_notification : Bool? = nil, protect_content : Bool? = nil, allow_paid_broadcast : Bool? = nil, message_effect_id : String? = nil, suggested_post_parameters : SuggestedPostParameters? = nil, reply_parameters : ReplyParameters? = nil, reply_markup : InlineKeyboardMarkup | ReplyKeyboardMarkup | ReplyKeyboardRemove | ForceReply? = nil) : Message
-        # Build multipart form data for file upload
-        boundary = MIME::Multipart.generate_boundary
-        form_body = MIME::Multipart.build(boundary) do |builder|
-          if business_connection_id
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"business_connection_id\""}
-            builder.body_part(headers, business_connection_id.to_s)
-          end
-          if chat_id
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"chat_id\""}
-            builder.body_part(headers, chat_id.to_s)
-          end
-          if message_thread_id
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"message_thread_id\""}
-            builder.body_part(headers, message_thread_id.to_s)
-          end
-          if direct_messages_topic_id
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"direct_messages_topic_id\""}
-            builder.body_part(headers, direct_messages_topic_id.to_s)
-          end
-          if video
-            if video.is_a?(File)
-              file_io = video
-              filename = File.basename(video.path)
-            elsif video.is_a?(IO)
-              file_io = video
-              filename = "file"
-            else
-              file_io = IO::Memory.new(video.to_s)
-              filename = "file"
-            end
-            headers = HTTP::Headers{
-              "Content-Disposition" => "form-data; name=\"video\"; filename=\"#{filename}\"",
-              "Content-Type" => "application/octet-stream"
-            }
-            builder.body_part(headers, file_io)
-          end
-          if duration
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"duration\""}
-            builder.body_part(headers, duration.to_s)
-          end
-          if width
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"width\""}
-            builder.body_part(headers, width.to_s)
-          end
-          if height
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"height\""}
-            builder.body_part(headers, height.to_s)
-          end
-          if thumbnail
-            if thumbnail.is_a?(File)
-              file_io = thumbnail
-              filename = File.basename(thumbnail.path)
-            elsif thumbnail.is_a?(IO)
-              file_io = thumbnail
-              filename = "file"
-            else
-              file_io = IO::Memory.new(thumbnail.to_s)
-              filename = "file"
-            end
-            headers = HTTP::Headers{
-              "Content-Disposition" => "form-data; name=\"thumbnail\"; filename=\"#{filename}\"",
-              "Content-Type" => "application/octet-stream"
-            }
-            builder.body_part(headers, file_io)
-          end
-          if cover
-            if cover.is_a?(File)
-              file_io = cover
-              filename = File.basename(cover.path)
-            elsif cover.is_a?(IO)
-              file_io = cover
-              filename = "file"
-            else
-              file_io = IO::Memory.new(cover.to_s)
-              filename = "file"
-            end
-            headers = HTTP::Headers{
-              "Content-Disposition" => "form-data; name=\"cover\"; filename=\"#{filename}\"",
-              "Content-Type" => "application/octet-stream"
-            }
-            builder.body_part(headers, file_io)
-          end
-          if start_timestamp
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"start_timestamp\""}
-            builder.body_part(headers, start_timestamp.to_s)
-          end
-          if caption
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"caption\""}
-            builder.body_part(headers, caption.to_s)
-          end
-          if parse_mode
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"parse_mode\""}
-            builder.body_part(headers, parse_mode.to_s)
-          end
-          if caption_entities
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"caption_entities\""}
-            builder.body_part(headers, caption_entities.to_s)
-          end
-          if show_caption_above_media
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"show_caption_above_media\""}
-            builder.body_part(headers, show_caption_above_media.to_s)
-          end
-          if has_spoiler
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"has_spoiler\""}
-            builder.body_part(headers, has_spoiler.to_s)
-          end
-          if supports_streaming
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"supports_streaming\""}
-            builder.body_part(headers, supports_streaming.to_s)
-          end
-          if disable_notification
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"disable_notification\""}
-            builder.body_part(headers, disable_notification.to_s)
-          end
-          if protect_content
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"protect_content\""}
-            builder.body_part(headers, protect_content.to_s)
-          end
-          if allow_paid_broadcast
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"allow_paid_broadcast\""}
-            builder.body_part(headers, allow_paid_broadcast.to_s)
-          end
-          if message_effect_id
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"message_effect_id\""}
-            builder.body_part(headers, message_effect_id.to_s)
-          end
-          if suggested_post_parameters
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"suggested_post_parameters\""}
-            builder.body_part(headers, suggested_post_parameters.to_s)
-          end
-          if reply_parameters
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"reply_parameters\""}
-            builder.body_part(headers, reply_parameters.to_s)
-          end
-          if reply_markup
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"reply_markup\""}
-            builder.body_part(headers, reply_markup.to_s)
-          end
+      def send_video(chat_id : Int32 | String, video : Telegram::InputFile | File | IO | String, business_connection_id : String? = nil, message_thread_id : Int32? = nil, direct_messages_topic_id : Int32? = nil, duration : Int32? = nil, width : Int32? = nil, height : Int32? = nil, thumbnail : Telegram::InputFile | File | IO | String? = nil, cover : Telegram::InputFile | File | IO | String? = nil, start_timestamp : Int32? = nil, caption : String? = nil, parse_mode : String? = nil, caption_entities : Array(MessageEntity)? = nil, show_caption_above_media : Bool? = nil, has_spoiler : Bool? = nil, supports_streaming : Bool? = nil, disable_notification : Bool? = nil, protect_content : Bool? = nil, allow_paid_broadcast : Bool? = nil, message_effect_id : String? = nil, suggested_post_parameters : SuggestedPostParameters? = nil, reply_parameters : ReplyParameters? = nil, reply_markup : InlineKeyboardMarkup | ReplyKeyboardMarkup | ReplyKeyboardRemove | ForceReply? = nil) : Message
+        # Collect parameters for file detection
+        params_hash = {
+          "business_connection_id" => business_connection_id,
+          "chat_id" => chat_id,
+          "message_thread_id" => message_thread_id,
+          "direct_messages_topic_id" => direct_messages_topic_id,
+          "video" => video,
+          "duration" => duration,
+          "width" => width,
+          "height" => height,
+          "thumbnail" => thumbnail,
+          "cover" => cover,
+          "start_timestamp" => start_timestamp,
+          "caption" => caption,
+          "parse_mode" => parse_mode,
+          "caption_entities" => caption_entities,
+          "show_caption_above_media" => show_caption_above_media,
+          "has_spoiler" => has_spoiler,
+          "supports_streaming" => supports_streaming,
+          "disable_notification" => disable_notification,
+          "protect_content" => protect_content,
+          "allow_paid_broadcast" => allow_paid_broadcast,
+          "message_effect_id" => message_effect_id,
+          "suggested_post_parameters" => suggested_post_parameters,
+          "reply_parameters" => reply_parameters,
+          "reply_markup" => reply_markup,
+        }
+
+        # Runtime detection: check if any parameters contain actual file data
+        has_files = contains_file_data?(params_hash)
+
+        if has_files
+          # Use multipart form data for file uploads
+          boundary, form_body = build_multipart_form_with_files(params_hash)
+          
+          # Make HTTP request with multipart form using enhanced client
+          url = "#{@api_url}/bot#{@token}/sendVideo"
+          response = @http_client.post_multipart(url, {boundary, form_body})
+        else
+          # Use JSON request when no files are present
+          params = build_request_hash_from_hash(params_hash)
+          
+          # Make HTTP request using enhanced client
+          url = "#{@api_url}/bot#{@token}/sendVideo"
+          response = @http_client.post(url,
+            headers: HTTP::Headers{"Content-Type" => "application/json"},
+            body: params.to_json
+          )
         end
 
-        # Make HTTP request with multipart form
-        url = "#{@api_url}/bot#{@token}/sendVideo"
-        response = HTTP::Client.post(url,
-          headers: HTTP::Headers{"Content-Type" => "multipart/form-data; boundary=#{boundary}"},
-          body: form_body
-        )
-
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        Message.from_json(json_response["result"].to_json)
+        result_data = json_response["result"]
+        Message.from_json(result_data.to_json)
       end
 
       # sendAnimation
@@ -1060,143 +798,62 @@ module Telegram
       #
       # Returns: Message
       # See: https://core.telegram.org/bots/api#sendanimation
-      def send_animation(chat_id : Int32 | String, animation : File | IO | String, business_connection_id : String? = nil, message_thread_id : Int32? = nil, direct_messages_topic_id : Int32? = nil, duration : Int32? = nil, width : Int32? = nil, height : Int32? = nil, thumbnail : File | IO | String? = nil, caption : String? = nil, parse_mode : String? = nil, caption_entities : Array(MessageEntity)? = nil, show_caption_above_media : Bool? = nil, has_spoiler : Bool? = nil, disable_notification : Bool? = nil, protect_content : Bool? = nil, allow_paid_broadcast : Bool? = nil, message_effect_id : String? = nil, suggested_post_parameters : SuggestedPostParameters? = nil, reply_parameters : ReplyParameters? = nil, reply_markup : InlineKeyboardMarkup | ReplyKeyboardMarkup | ReplyKeyboardRemove | ForceReply? = nil) : Message
-        # Build multipart form data for file upload
-        boundary = MIME::Multipart.generate_boundary
-        form_body = MIME::Multipart.build(boundary) do |builder|
-          if business_connection_id
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"business_connection_id\""}
-            builder.body_part(headers, business_connection_id.to_s)
-          end
-          if chat_id
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"chat_id\""}
-            builder.body_part(headers, chat_id.to_s)
-          end
-          if message_thread_id
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"message_thread_id\""}
-            builder.body_part(headers, message_thread_id.to_s)
-          end
-          if direct_messages_topic_id
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"direct_messages_topic_id\""}
-            builder.body_part(headers, direct_messages_topic_id.to_s)
-          end
-          if animation
-            if animation.is_a?(File)
-              file_io = animation
-              filename = File.basename(animation.path)
-            elsif animation.is_a?(IO)
-              file_io = animation
-              filename = "file"
-            else
-              file_io = IO::Memory.new(animation.to_s)
-              filename = "file"
-            end
-            headers = HTTP::Headers{
-              "Content-Disposition" => "form-data; name=\"animation\"; filename=\"#{filename}\"",
-              "Content-Type" => "application/octet-stream"
-            }
-            builder.body_part(headers, file_io)
-          end
-          if duration
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"duration\""}
-            builder.body_part(headers, duration.to_s)
-          end
-          if width
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"width\""}
-            builder.body_part(headers, width.to_s)
-          end
-          if height
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"height\""}
-            builder.body_part(headers, height.to_s)
-          end
-          if thumbnail
-            if thumbnail.is_a?(File)
-              file_io = thumbnail
-              filename = File.basename(thumbnail.path)
-            elsif thumbnail.is_a?(IO)
-              file_io = thumbnail
-              filename = "file"
-            else
-              file_io = IO::Memory.new(thumbnail.to_s)
-              filename = "file"
-            end
-            headers = HTTP::Headers{
-              "Content-Disposition" => "form-data; name=\"thumbnail\"; filename=\"#{filename}\"",
-              "Content-Type" => "application/octet-stream"
-            }
-            builder.body_part(headers, file_io)
-          end
-          if caption
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"caption\""}
-            builder.body_part(headers, caption.to_s)
-          end
-          if parse_mode
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"parse_mode\""}
-            builder.body_part(headers, parse_mode.to_s)
-          end
-          if caption_entities
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"caption_entities\""}
-            builder.body_part(headers, caption_entities.to_s)
-          end
-          if show_caption_above_media
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"show_caption_above_media\""}
-            builder.body_part(headers, show_caption_above_media.to_s)
-          end
-          if has_spoiler
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"has_spoiler\""}
-            builder.body_part(headers, has_spoiler.to_s)
-          end
-          if disable_notification
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"disable_notification\""}
-            builder.body_part(headers, disable_notification.to_s)
-          end
-          if protect_content
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"protect_content\""}
-            builder.body_part(headers, protect_content.to_s)
-          end
-          if allow_paid_broadcast
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"allow_paid_broadcast\""}
-            builder.body_part(headers, allow_paid_broadcast.to_s)
-          end
-          if message_effect_id
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"message_effect_id\""}
-            builder.body_part(headers, message_effect_id.to_s)
-          end
-          if suggested_post_parameters
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"suggested_post_parameters\""}
-            builder.body_part(headers, suggested_post_parameters.to_s)
-          end
-          if reply_parameters
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"reply_parameters\""}
-            builder.body_part(headers, reply_parameters.to_s)
-          end
-          if reply_markup
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"reply_markup\""}
-            builder.body_part(headers, reply_markup.to_s)
-          end
+      def send_animation(chat_id : Int32 | String, animation : Telegram::InputFile | File | IO | String, business_connection_id : String? = nil, message_thread_id : Int32? = nil, direct_messages_topic_id : Int32? = nil, duration : Int32? = nil, width : Int32? = nil, height : Int32? = nil, thumbnail : Telegram::InputFile | File | IO | String? = nil, caption : String? = nil, parse_mode : String? = nil, caption_entities : Array(MessageEntity)? = nil, show_caption_above_media : Bool? = nil, has_spoiler : Bool? = nil, disable_notification : Bool? = nil, protect_content : Bool? = nil, allow_paid_broadcast : Bool? = nil, message_effect_id : String? = nil, suggested_post_parameters : SuggestedPostParameters? = nil, reply_parameters : ReplyParameters? = nil, reply_markup : InlineKeyboardMarkup | ReplyKeyboardMarkup | ReplyKeyboardRemove | ForceReply? = nil) : Message
+        # Collect parameters for file detection
+        params_hash = {
+          "business_connection_id" => business_connection_id,
+          "chat_id" => chat_id,
+          "message_thread_id" => message_thread_id,
+          "direct_messages_topic_id" => direct_messages_topic_id,
+          "animation" => animation,
+          "duration" => duration,
+          "width" => width,
+          "height" => height,
+          "thumbnail" => thumbnail,
+          "caption" => caption,
+          "parse_mode" => parse_mode,
+          "caption_entities" => caption_entities,
+          "show_caption_above_media" => show_caption_above_media,
+          "has_spoiler" => has_spoiler,
+          "disable_notification" => disable_notification,
+          "protect_content" => protect_content,
+          "allow_paid_broadcast" => allow_paid_broadcast,
+          "message_effect_id" => message_effect_id,
+          "suggested_post_parameters" => suggested_post_parameters,
+          "reply_parameters" => reply_parameters,
+          "reply_markup" => reply_markup,
+        }
+
+        # Runtime detection: check if any parameters contain actual file data
+        has_files = contains_file_data?(params_hash)
+
+        if has_files
+          # Use multipart form data for file uploads
+          boundary, form_body = build_multipart_form_with_files(params_hash)
+          
+          # Make HTTP request with multipart form using enhanced client
+          url = "#{@api_url}/bot#{@token}/sendAnimation"
+          response = @http_client.post_multipart(url, {boundary, form_body})
+        else
+          # Use JSON request when no files are present
+          params = build_request_hash_from_hash(params_hash)
+          
+          # Make HTTP request using enhanced client
+          url = "#{@api_url}/bot#{@token}/sendAnimation"
+          response = @http_client.post(url,
+            headers: HTTP::Headers{"Content-Type" => "application/json"},
+            body: params.to_json
+          )
         end
 
-        # Make HTTP request with multipart form
-        url = "#{@api_url}/bot#{@token}/sendAnimation"
-        response = HTTP::Client.post(url,
-          headers: HTTP::Headers{"Content-Type" => "multipart/form-data; boundary=#{boundary}"},
-          body: form_body
-        )
-
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        Message.from_json(json_response["result"].to_json)
+        result_data = json_response["result"]
+        Message.from_json(result_data.to_json)
       end
 
       # sendVoice
@@ -1204,110 +861,57 @@ module Telegram
       #
       # Returns: Message
       # See: https://core.telegram.org/bots/api#sendvoice
-      def send_voice(chat_id : Int32 | String, voice : File | IO | String, business_connection_id : String? = nil, message_thread_id : Int32? = nil, direct_messages_topic_id : Int32? = nil, caption : String? = nil, parse_mode : String? = nil, caption_entities : Array(MessageEntity)? = nil, duration : Int32? = nil, disable_notification : Bool? = nil, protect_content : Bool? = nil, allow_paid_broadcast : Bool? = nil, message_effect_id : String? = nil, suggested_post_parameters : SuggestedPostParameters? = nil, reply_parameters : ReplyParameters? = nil, reply_markup : InlineKeyboardMarkup | ReplyKeyboardMarkup | ReplyKeyboardRemove | ForceReply? = nil) : Message
-        # Build multipart form data for file upload
-        boundary = MIME::Multipart.generate_boundary
-        form_body = MIME::Multipart.build(boundary) do |builder|
-          if business_connection_id
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"business_connection_id\""}
-            builder.body_part(headers, business_connection_id.to_s)
-          end
-          if chat_id
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"chat_id\""}
-            builder.body_part(headers, chat_id.to_s)
-          end
-          if message_thread_id
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"message_thread_id\""}
-            builder.body_part(headers, message_thread_id.to_s)
-          end
-          if direct_messages_topic_id
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"direct_messages_topic_id\""}
-            builder.body_part(headers, direct_messages_topic_id.to_s)
-          end
-          if voice
-            if voice.is_a?(File)
-              file_io = voice
-              filename = File.basename(voice.path)
-            elsif voice.is_a?(IO)
-              file_io = voice
-              filename = "file"
-            else
-              file_io = IO::Memory.new(voice.to_s)
-              filename = "file"
-            end
-            headers = HTTP::Headers{
-              "Content-Disposition" => "form-data; name=\"voice\"; filename=\"#{filename}\"",
-              "Content-Type" => "application/octet-stream"
-            }
-            builder.body_part(headers, file_io)
-          end
-          if caption
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"caption\""}
-            builder.body_part(headers, caption.to_s)
-          end
-          if parse_mode
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"parse_mode\""}
-            builder.body_part(headers, parse_mode.to_s)
-          end
-          if caption_entities
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"caption_entities\""}
-            builder.body_part(headers, caption_entities.to_s)
-          end
-          if duration
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"duration\""}
-            builder.body_part(headers, duration.to_s)
-          end
-          if disable_notification
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"disable_notification\""}
-            builder.body_part(headers, disable_notification.to_s)
-          end
-          if protect_content
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"protect_content\""}
-            builder.body_part(headers, protect_content.to_s)
-          end
-          if allow_paid_broadcast
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"allow_paid_broadcast\""}
-            builder.body_part(headers, allow_paid_broadcast.to_s)
-          end
-          if message_effect_id
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"message_effect_id\""}
-            builder.body_part(headers, message_effect_id.to_s)
-          end
-          if suggested_post_parameters
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"suggested_post_parameters\""}
-            builder.body_part(headers, suggested_post_parameters.to_s)
-          end
-          if reply_parameters
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"reply_parameters\""}
-            builder.body_part(headers, reply_parameters.to_s)
-          end
-          if reply_markup
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"reply_markup\""}
-            builder.body_part(headers, reply_markup.to_s)
-          end
+      def send_voice(chat_id : Int32 | String, voice : Telegram::InputFile | File | IO | String, business_connection_id : String? = nil, message_thread_id : Int32? = nil, direct_messages_topic_id : Int32? = nil, caption : String? = nil, parse_mode : String? = nil, caption_entities : Array(MessageEntity)? = nil, duration : Int32? = nil, disable_notification : Bool? = nil, protect_content : Bool? = nil, allow_paid_broadcast : Bool? = nil, message_effect_id : String? = nil, suggested_post_parameters : SuggestedPostParameters? = nil, reply_parameters : ReplyParameters? = nil, reply_markup : InlineKeyboardMarkup | ReplyKeyboardMarkup | ReplyKeyboardRemove | ForceReply? = nil) : Message
+        # Collect parameters for file detection
+        params_hash = {
+          "business_connection_id" => business_connection_id,
+          "chat_id" => chat_id,
+          "message_thread_id" => message_thread_id,
+          "direct_messages_topic_id" => direct_messages_topic_id,
+          "voice" => voice,
+          "caption" => caption,
+          "parse_mode" => parse_mode,
+          "caption_entities" => caption_entities,
+          "duration" => duration,
+          "disable_notification" => disable_notification,
+          "protect_content" => protect_content,
+          "allow_paid_broadcast" => allow_paid_broadcast,
+          "message_effect_id" => message_effect_id,
+          "suggested_post_parameters" => suggested_post_parameters,
+          "reply_parameters" => reply_parameters,
+          "reply_markup" => reply_markup,
+        }
+
+        # Runtime detection: check if any parameters contain actual file data
+        has_files = contains_file_data?(params_hash)
+
+        if has_files
+          # Use multipart form data for file uploads
+          boundary, form_body = build_multipart_form_with_files(params_hash)
+          
+          # Make HTTP request with multipart form using enhanced client
+          url = "#{@api_url}/bot#{@token}/sendVoice"
+          response = @http_client.post_multipart(url, {boundary, form_body})
+        else
+          # Use JSON request when no files are present
+          params = build_request_hash_from_hash(params_hash)
+          
+          # Make HTTP request using enhanced client
+          url = "#{@api_url}/bot#{@token}/sendVoice"
+          response = @http_client.post(url,
+            headers: HTTP::Headers{"Content-Type" => "application/json"},
+            body: params.to_json
+          )
         end
 
-        # Make HTTP request with multipart form
-        url = "#{@api_url}/bot#{@token}/sendVoice"
-        response = HTTP::Client.post(url,
-          headers: HTTP::Headers{"Content-Type" => "multipart/form-data; boundary=#{boundary}"},
-          body: form_body
-        )
-
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        Message.from_json(json_response["result"].to_json)
+        result_data = json_response["result"]
+        Message.from_json(result_data.to_json)
       end
 
       # sendVideoNote
@@ -1315,119 +919,56 @@ module Telegram
       #
       # Returns: Message
       # See: https://core.telegram.org/bots/api#sendvideonote
-      def send_video_note(chat_id : Int32 | String, video_note : File | IO | String, business_connection_id : String? = nil, message_thread_id : Int32? = nil, direct_messages_topic_id : Int32? = nil, duration : Int32? = nil, length : Int32? = nil, thumbnail : File | IO | String? = nil, disable_notification : Bool? = nil, protect_content : Bool? = nil, allow_paid_broadcast : Bool? = nil, message_effect_id : String? = nil, suggested_post_parameters : SuggestedPostParameters? = nil, reply_parameters : ReplyParameters? = nil, reply_markup : InlineKeyboardMarkup | ReplyKeyboardMarkup | ReplyKeyboardRemove | ForceReply? = nil) : Message
-        # Build multipart form data for file upload
-        boundary = MIME::Multipart.generate_boundary
-        form_body = MIME::Multipart.build(boundary) do |builder|
-          if business_connection_id
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"business_connection_id\""}
-            builder.body_part(headers, business_connection_id.to_s)
-          end
-          if chat_id
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"chat_id\""}
-            builder.body_part(headers, chat_id.to_s)
-          end
-          if message_thread_id
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"message_thread_id\""}
-            builder.body_part(headers, message_thread_id.to_s)
-          end
-          if direct_messages_topic_id
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"direct_messages_topic_id\""}
-            builder.body_part(headers, direct_messages_topic_id.to_s)
-          end
-          if video_note
-            if video_note.is_a?(File)
-              file_io = video_note
-              filename = File.basename(video_note.path)
-            elsif video_note.is_a?(IO)
-              file_io = video_note
-              filename = "file"
-            else
-              file_io = IO::Memory.new(video_note.to_s)
-              filename = "file"
-            end
-            headers = HTTP::Headers{
-              "Content-Disposition" => "form-data; name=\"video_note\"; filename=\"#{filename}\"",
-              "Content-Type" => "application/octet-stream"
-            }
-            builder.body_part(headers, file_io)
-          end
-          if duration
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"duration\""}
-            builder.body_part(headers, duration.to_s)
-          end
-          if length
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"length\""}
-            builder.body_part(headers, length.to_s)
-          end
-          if thumbnail
-            if thumbnail.is_a?(File)
-              file_io = thumbnail
-              filename = File.basename(thumbnail.path)
-            elsif thumbnail.is_a?(IO)
-              file_io = thumbnail
-              filename = "file"
-            else
-              file_io = IO::Memory.new(thumbnail.to_s)
-              filename = "file"
-            end
-            headers = HTTP::Headers{
-              "Content-Disposition" => "form-data; name=\"thumbnail\"; filename=\"#{filename}\"",
-              "Content-Type" => "application/octet-stream"
-            }
-            builder.body_part(headers, file_io)
-          end
-          if disable_notification
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"disable_notification\""}
-            builder.body_part(headers, disable_notification.to_s)
-          end
-          if protect_content
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"protect_content\""}
-            builder.body_part(headers, protect_content.to_s)
-          end
-          if allow_paid_broadcast
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"allow_paid_broadcast\""}
-            builder.body_part(headers, allow_paid_broadcast.to_s)
-          end
-          if message_effect_id
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"message_effect_id\""}
-            builder.body_part(headers, message_effect_id.to_s)
-          end
-          if suggested_post_parameters
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"suggested_post_parameters\""}
-            builder.body_part(headers, suggested_post_parameters.to_s)
-          end
-          if reply_parameters
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"reply_parameters\""}
-            builder.body_part(headers, reply_parameters.to_s)
-          end
-          if reply_markup
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"reply_markup\""}
-            builder.body_part(headers, reply_markup.to_s)
-          end
+      def send_video_note(chat_id : Int32 | String, video_note : Telegram::InputFile | File | IO | String, business_connection_id : String? = nil, message_thread_id : Int32? = nil, direct_messages_topic_id : Int32? = nil, duration : Int32? = nil, length : Int32? = nil, thumbnail : Telegram::InputFile | File | IO | String? = nil, disable_notification : Bool? = nil, protect_content : Bool? = nil, allow_paid_broadcast : Bool? = nil, message_effect_id : String? = nil, suggested_post_parameters : SuggestedPostParameters? = nil, reply_parameters : ReplyParameters? = nil, reply_markup : InlineKeyboardMarkup | ReplyKeyboardMarkup | ReplyKeyboardRemove | ForceReply? = nil) : Message
+        # Collect parameters for file detection
+        params_hash = {
+          "business_connection_id" => business_connection_id,
+          "chat_id" => chat_id,
+          "message_thread_id" => message_thread_id,
+          "direct_messages_topic_id" => direct_messages_topic_id,
+          "video_note" => video_note,
+          "duration" => duration,
+          "length" => length,
+          "thumbnail" => thumbnail,
+          "disable_notification" => disable_notification,
+          "protect_content" => protect_content,
+          "allow_paid_broadcast" => allow_paid_broadcast,
+          "message_effect_id" => message_effect_id,
+          "suggested_post_parameters" => suggested_post_parameters,
+          "reply_parameters" => reply_parameters,
+          "reply_markup" => reply_markup,
+        }
+
+        # Runtime detection: check if any parameters contain actual file data
+        has_files = contains_file_data?(params_hash)
+
+        if has_files
+          # Use multipart form data for file uploads
+          boundary, form_body = build_multipart_form_with_files(params_hash)
+          
+          # Make HTTP request with multipart form using enhanced client
+          url = "#{@api_url}/bot#{@token}/sendVideoNote"
+          response = @http_client.post_multipart(url, {boundary, form_body})
+        else
+          # Use JSON request when no files are present
+          params = build_request_hash_from_hash(params_hash)
+          
+          # Make HTTP request using enhanced client
+          url = "#{@api_url}/bot#{@token}/sendVideoNote"
+          response = @http_client.post(url,
+            headers: HTTP::Headers{"Content-Type" => "application/json"},
+            body: params.to_json
+          )
         end
 
-        # Make HTTP request with multipart form
-        url = "#{@api_url}/bot#{@token}/sendVideoNote"
-        response = HTTP::Client.post(url,
-          headers: HTTP::Headers{"Content-Type" => "multipart/form-data; boundary=#{boundary}"},
-          body: form_body
-        )
-
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        Message.from_json(json_response["result"].to_json)
+        result_data = json_response["result"]
+        Message.from_json(result_data.to_json)
       end
 
       # sendPaidMedia
@@ -1436,47 +977,63 @@ module Telegram
       # Returns: Message
       # See: https://core.telegram.org/bots/api#sendpaidmedia
       def send_paid_media(chat_id : Int32 | String, star_count : Int32, media : Array(InputPaidMedia), business_connection_id : String? = nil, message_thread_id : Int32? = nil, direct_messages_topic_id : Int32? = nil, payload : String? = nil, caption : String? = nil, parse_mode : String? = nil, caption_entities : Array(MessageEntity)? = nil, show_caption_above_media : Bool? = nil, disable_notification : Bool? = nil, protect_content : Bool? = nil, allow_paid_broadcast : Bool? = nil, suggested_post_parameters : SuggestedPostParameters? = nil, reply_parameters : ReplyParameters? = nil, reply_markup : InlineKeyboardMarkup | ReplyKeyboardMarkup | ReplyKeyboardRemove | ForceReply? = nil) : Message
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["business_connection_id"] = JSON::Any.new(business_connection_id) if business_connection_id
-        params["chat_id"] = JSON::Any.new(chat_id) if chat_id
-        params["message_thread_id"] = JSON::Any.new(message_thread_id) if message_thread_id
-        params["direct_messages_topic_id"] = JSON::Any.new(direct_messages_topic_id) if direct_messages_topic_id
-        params["star_count"] = JSON::Any.new(star_count) if star_count
-        params["media"] = JSON::Any.new(media) if media
-        params["payload"] = JSON::Any.new(payload) if payload
-        params["caption"] = JSON::Any.new(caption) if caption
-        params["parse_mode"] = JSON::Any.new(parse_mode) if parse_mode
-        params["caption_entities"] = JSON::Any.new(caption_entities) if caption_entities
-        params["show_caption_above_media"] = JSON::Any.new(show_caption_above_media) if show_caption_above_media
-        params["disable_notification"] = JSON::Any.new(disable_notification) if disable_notification
-        params["protect_content"] = JSON::Any.new(protect_content) if protect_content
-        params["allow_paid_broadcast"] = JSON::Any.new(allow_paid_broadcast) if allow_paid_broadcast
-        params["suggested_post_parameters"] = JSON::Any.new(suggested_post_parameters) if suggested_post_parameters
-        params["reply_parameters"] = JSON::Any.new(reply_parameters) if reply_parameters
-        params["reply_markup"] = JSON::Any.new(reply_markup) if reply_markup
+        # Collect parameters for file detection
+        params_hash = {
+          "business_connection_id" => business_connection_id,
+          "chat_id" => chat_id,
+          "message_thread_id" => message_thread_id,
+          "direct_messages_topic_id" => direct_messages_topic_id,
+          "star_count" => star_count,
+          "media" => media,
+          "payload" => payload,
+          "caption" => caption,
+          "parse_mode" => parse_mode,
+          "caption_entities" => caption_entities,
+          "show_caption_above_media" => show_caption_above_media,
+          "disable_notification" => disable_notification,
+          "protect_content" => protect_content,
+          "allow_paid_broadcast" => allow_paid_broadcast,
+          "suggested_post_parameters" => suggested_post_parameters,
+          "reply_parameters" => reply_parameters,
+          "reply_markup" => reply_markup,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          business_connection_id: business_connection_id,
+          chat_id: chat_id,
+          message_thread_id: message_thread_id,
+          direct_messages_topic_id: direct_messages_topic_id,
+          star_count: star_count,
+          media: media,
+          payload: payload,
+          caption: caption,
+          parse_mode: parse_mode,
+          caption_entities: caption_entities,
+          show_caption_above_media: show_caption_above_media,
+          disable_notification: disable_notification,
+          protect_content: protect_content,
+          allow_paid_broadcast: allow_paid_broadcast,
+          suggested_post_parameters: suggested_post_parameters,
+          reply_parameters: reply_parameters,
+          reply_markup: reply_markup,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/sendPaidMedia"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        Message.from_json(json_response["result"].to_json)
+        result_data = json_response["result"]
+        Message.from_json(result_data.to_json)
       end
 
       # sendMediaGroup
@@ -1485,40 +1042,50 @@ module Telegram
       # Returns: Array(Message)
       # See: https://core.telegram.org/bots/api#sendmediagroup
       def send_media_group(chat_id : Int32 | String, media : Array(InputMediaAudio) | Array(InputMediaDocument) | Array(InputMediaPhoto) | Array(InputMediaVideo), business_connection_id : String? = nil, message_thread_id : Int32? = nil, direct_messages_topic_id : Int32? = nil, disable_notification : Bool? = nil, protect_content : Bool? = nil, allow_paid_broadcast : Bool? = nil, message_effect_id : String? = nil, reply_parameters : ReplyParameters? = nil) : Array(Message)
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["business_connection_id"] = JSON::Any.new(business_connection_id) if business_connection_id
-        params["chat_id"] = JSON::Any.new(chat_id) if chat_id
-        params["message_thread_id"] = JSON::Any.new(message_thread_id) if message_thread_id
-        params["direct_messages_topic_id"] = JSON::Any.new(direct_messages_topic_id) if direct_messages_topic_id
-        params["media"] = JSON::Any.new(media) if media
-        params["disable_notification"] = JSON::Any.new(disable_notification) if disable_notification
-        params["protect_content"] = JSON::Any.new(protect_content) if protect_content
-        params["allow_paid_broadcast"] = JSON::Any.new(allow_paid_broadcast) if allow_paid_broadcast
-        params["message_effect_id"] = JSON::Any.new(message_effect_id) if message_effect_id
-        params["reply_parameters"] = JSON::Any.new(reply_parameters) if reply_parameters
+        # Collect parameters for file detection
+        params_hash = {
+          "business_connection_id" => business_connection_id,
+          "chat_id" => chat_id,
+          "message_thread_id" => message_thread_id,
+          "direct_messages_topic_id" => direct_messages_topic_id,
+          "media" => media,
+          "disable_notification" => disable_notification,
+          "protect_content" => protect_content,
+          "allow_paid_broadcast" => allow_paid_broadcast,
+          "message_effect_id" => message_effect_id,
+          "reply_parameters" => reply_parameters,
+        }
 
-        # Make HTTP request
-        url = "#{@api_url}/bot#{@token}/sendMediaGroup"
-        response = HTTP::Client.post(url,
-          headers: HTTP::Headers{"Content-Type" => "application/json"},
-          body: params.to_json
-        )
+        # Runtime detection: check if any parameters contain actual file data
+        has_files = contains_file_data?(params_hash)
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
+        if has_files
+          # Use multipart form data for file uploads
+          boundary, form_body = build_multipart_form_with_files(params_hash)
+          
+          # Make HTTP request with multipart form using enhanced client
+          url = "#{@api_url}/bot#{@token}/sendMediaGroup"
+          response = @http_client.post_multipart(url, {boundary, form_body})
+        else
+          # Use JSON request when no files are present
+          params = build_request_hash_from_hash(params_hash)
+          
+          # Make HTTP request using enhanced client
+          url = "#{@api_url}/bot#{@token}/sendMediaGroup"
+          response = @http_client.post(url,
+            headers: HTTP::Headers{"Content-Type" => "application/json"},
+            body: params.to_json
+          )
         end
 
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"].as_a.map { |item| Message.from_json(item.to_json) }
+        result_data = json_response["result"]
+        Array(Message).from_json(result_data.to_json)
       end
 
       # sendLocation
@@ -1527,47 +1094,63 @@ module Telegram
       # Returns: Message
       # See: https://core.telegram.org/bots/api#sendlocation
       def send_location(chat_id : Int32 | String, latitude : Float64, longitude : Float64, business_connection_id : String? = nil, message_thread_id : Int32? = nil, direct_messages_topic_id : Int32? = nil, horizontal_accuracy : Float64? = nil, live_period : Int32? = nil, heading : Int32? = nil, proximity_alert_radius : Int32? = nil, disable_notification : Bool? = nil, protect_content : Bool? = nil, allow_paid_broadcast : Bool? = nil, message_effect_id : String? = nil, suggested_post_parameters : SuggestedPostParameters? = nil, reply_parameters : ReplyParameters? = nil, reply_markup : InlineKeyboardMarkup | ReplyKeyboardMarkup | ReplyKeyboardRemove | ForceReply? = nil) : Message
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["business_connection_id"] = JSON::Any.new(business_connection_id) if business_connection_id
-        params["chat_id"] = JSON::Any.new(chat_id) if chat_id
-        params["message_thread_id"] = JSON::Any.new(message_thread_id) if message_thread_id
-        params["direct_messages_topic_id"] = JSON::Any.new(direct_messages_topic_id) if direct_messages_topic_id
-        params["latitude"] = JSON::Any.new(latitude) if latitude
-        params["longitude"] = JSON::Any.new(longitude) if longitude
-        params["horizontal_accuracy"] = JSON::Any.new(horizontal_accuracy) if horizontal_accuracy
-        params["live_period"] = JSON::Any.new(live_period) if live_period
-        params["heading"] = JSON::Any.new(heading) if heading
-        params["proximity_alert_radius"] = JSON::Any.new(proximity_alert_radius) if proximity_alert_radius
-        params["disable_notification"] = JSON::Any.new(disable_notification) if disable_notification
-        params["protect_content"] = JSON::Any.new(protect_content) if protect_content
-        params["allow_paid_broadcast"] = JSON::Any.new(allow_paid_broadcast) if allow_paid_broadcast
-        params["message_effect_id"] = JSON::Any.new(message_effect_id) if message_effect_id
-        params["suggested_post_parameters"] = JSON::Any.new(suggested_post_parameters) if suggested_post_parameters
-        params["reply_parameters"] = JSON::Any.new(reply_parameters) if reply_parameters
-        params["reply_markup"] = JSON::Any.new(reply_markup) if reply_markup
+        # Collect parameters for file detection
+        params_hash = {
+          "business_connection_id" => business_connection_id,
+          "chat_id" => chat_id,
+          "message_thread_id" => message_thread_id,
+          "direct_messages_topic_id" => direct_messages_topic_id,
+          "latitude" => latitude,
+          "longitude" => longitude,
+          "horizontal_accuracy" => horizontal_accuracy,
+          "live_period" => live_period,
+          "heading" => heading,
+          "proximity_alert_radius" => proximity_alert_radius,
+          "disable_notification" => disable_notification,
+          "protect_content" => protect_content,
+          "allow_paid_broadcast" => allow_paid_broadcast,
+          "message_effect_id" => message_effect_id,
+          "suggested_post_parameters" => suggested_post_parameters,
+          "reply_parameters" => reply_parameters,
+          "reply_markup" => reply_markup,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          business_connection_id: business_connection_id,
+          chat_id: chat_id,
+          message_thread_id: message_thread_id,
+          direct_messages_topic_id: direct_messages_topic_id,
+          latitude: latitude,
+          longitude: longitude,
+          horizontal_accuracy: horizontal_accuracy,
+          live_period: live_period,
+          heading: heading,
+          proximity_alert_radius: proximity_alert_radius,
+          disable_notification: disable_notification,
+          protect_content: protect_content,
+          allow_paid_broadcast: allow_paid_broadcast,
+          message_effect_id: message_effect_id,
+          suggested_post_parameters: suggested_post_parameters,
+          reply_parameters: reply_parameters,
+          reply_markup: reply_markup,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/sendLocation"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        Message.from_json(json_response["result"].to_json)
+        result_data = json_response["result"]
+        Message.from_json(result_data.to_json)
       end
 
       # sendVenue
@@ -1576,49 +1159,67 @@ module Telegram
       # Returns: Message
       # See: https://core.telegram.org/bots/api#sendvenue
       def send_venue(chat_id : Int32 | String, latitude : Float64, longitude : Float64, title : String, address : String, business_connection_id : String? = nil, message_thread_id : Int32? = nil, direct_messages_topic_id : Int32? = nil, foursquare_id : String? = nil, foursquare_type : String? = nil, google_place_id : String? = nil, google_place_type : String? = nil, disable_notification : Bool? = nil, protect_content : Bool? = nil, allow_paid_broadcast : Bool? = nil, message_effect_id : String? = nil, suggested_post_parameters : SuggestedPostParameters? = nil, reply_parameters : ReplyParameters? = nil, reply_markup : InlineKeyboardMarkup | ReplyKeyboardMarkup | ReplyKeyboardRemove | ForceReply? = nil) : Message
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["business_connection_id"] = JSON::Any.new(business_connection_id) if business_connection_id
-        params["chat_id"] = JSON::Any.new(chat_id) if chat_id
-        params["message_thread_id"] = JSON::Any.new(message_thread_id) if message_thread_id
-        params["direct_messages_topic_id"] = JSON::Any.new(direct_messages_topic_id) if direct_messages_topic_id
-        params["latitude"] = JSON::Any.new(latitude) if latitude
-        params["longitude"] = JSON::Any.new(longitude) if longitude
-        params["title"] = JSON::Any.new(title) if title
-        params["address"] = JSON::Any.new(address) if address
-        params["foursquare_id"] = JSON::Any.new(foursquare_id) if foursquare_id
-        params["foursquare_type"] = JSON::Any.new(foursquare_type) if foursquare_type
-        params["google_place_id"] = JSON::Any.new(google_place_id) if google_place_id
-        params["google_place_type"] = JSON::Any.new(google_place_type) if google_place_type
-        params["disable_notification"] = JSON::Any.new(disable_notification) if disable_notification
-        params["protect_content"] = JSON::Any.new(protect_content) if protect_content
-        params["allow_paid_broadcast"] = JSON::Any.new(allow_paid_broadcast) if allow_paid_broadcast
-        params["message_effect_id"] = JSON::Any.new(message_effect_id) if message_effect_id
-        params["suggested_post_parameters"] = JSON::Any.new(suggested_post_parameters) if suggested_post_parameters
-        params["reply_parameters"] = JSON::Any.new(reply_parameters) if reply_parameters
-        params["reply_markup"] = JSON::Any.new(reply_markup) if reply_markup
+        # Collect parameters for file detection
+        params_hash = {
+          "business_connection_id" => business_connection_id,
+          "chat_id" => chat_id,
+          "message_thread_id" => message_thread_id,
+          "direct_messages_topic_id" => direct_messages_topic_id,
+          "latitude" => latitude,
+          "longitude" => longitude,
+          "title" => title,
+          "address" => address,
+          "foursquare_id" => foursquare_id,
+          "foursquare_type" => foursquare_type,
+          "google_place_id" => google_place_id,
+          "google_place_type" => google_place_type,
+          "disable_notification" => disable_notification,
+          "protect_content" => protect_content,
+          "allow_paid_broadcast" => allow_paid_broadcast,
+          "message_effect_id" => message_effect_id,
+          "suggested_post_parameters" => suggested_post_parameters,
+          "reply_parameters" => reply_parameters,
+          "reply_markup" => reply_markup,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          business_connection_id: business_connection_id,
+          chat_id: chat_id,
+          message_thread_id: message_thread_id,
+          direct_messages_topic_id: direct_messages_topic_id,
+          latitude: latitude,
+          longitude: longitude,
+          title: title,
+          address: address,
+          foursquare_id: foursquare_id,
+          foursquare_type: foursquare_type,
+          google_place_id: google_place_id,
+          google_place_type: google_place_type,
+          disable_notification: disable_notification,
+          protect_content: protect_content,
+          allow_paid_broadcast: allow_paid_broadcast,
+          message_effect_id: message_effect_id,
+          suggested_post_parameters: suggested_post_parameters,
+          reply_parameters: reply_parameters,
+          reply_markup: reply_markup,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/sendVenue"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        Message.from_json(json_response["result"].to_json)
+        result_data = json_response["result"]
+        Message.from_json(result_data.to_json)
       end
 
       # sendContact
@@ -1627,45 +1228,59 @@ module Telegram
       # Returns: Message
       # See: https://core.telegram.org/bots/api#sendcontact
       def send_contact(chat_id : Int32 | String, phone_number : String, first_name : String, business_connection_id : String? = nil, message_thread_id : Int32? = nil, direct_messages_topic_id : Int32? = nil, last_name : String? = nil, vcard : String? = nil, disable_notification : Bool? = nil, protect_content : Bool? = nil, allow_paid_broadcast : Bool? = nil, message_effect_id : String? = nil, suggested_post_parameters : SuggestedPostParameters? = nil, reply_parameters : ReplyParameters? = nil, reply_markup : InlineKeyboardMarkup | ReplyKeyboardMarkup | ReplyKeyboardRemove | ForceReply? = nil) : Message
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["business_connection_id"] = JSON::Any.new(business_connection_id) if business_connection_id
-        params["chat_id"] = JSON::Any.new(chat_id) if chat_id
-        params["message_thread_id"] = JSON::Any.new(message_thread_id) if message_thread_id
-        params["direct_messages_topic_id"] = JSON::Any.new(direct_messages_topic_id) if direct_messages_topic_id
-        params["phone_number"] = JSON::Any.new(phone_number) if phone_number
-        params["first_name"] = JSON::Any.new(first_name) if first_name
-        params["last_name"] = JSON::Any.new(last_name) if last_name
-        params["vcard"] = JSON::Any.new(vcard) if vcard
-        params["disable_notification"] = JSON::Any.new(disable_notification) if disable_notification
-        params["protect_content"] = JSON::Any.new(protect_content) if protect_content
-        params["allow_paid_broadcast"] = JSON::Any.new(allow_paid_broadcast) if allow_paid_broadcast
-        params["message_effect_id"] = JSON::Any.new(message_effect_id) if message_effect_id
-        params["suggested_post_parameters"] = JSON::Any.new(suggested_post_parameters) if suggested_post_parameters
-        params["reply_parameters"] = JSON::Any.new(reply_parameters) if reply_parameters
-        params["reply_markup"] = JSON::Any.new(reply_markup) if reply_markup
+        # Collect parameters for file detection
+        params_hash = {
+          "business_connection_id" => business_connection_id,
+          "chat_id" => chat_id,
+          "message_thread_id" => message_thread_id,
+          "direct_messages_topic_id" => direct_messages_topic_id,
+          "phone_number" => phone_number,
+          "first_name" => first_name,
+          "last_name" => last_name,
+          "vcard" => vcard,
+          "disable_notification" => disable_notification,
+          "protect_content" => protect_content,
+          "allow_paid_broadcast" => allow_paid_broadcast,
+          "message_effect_id" => message_effect_id,
+          "suggested_post_parameters" => suggested_post_parameters,
+          "reply_parameters" => reply_parameters,
+          "reply_markup" => reply_markup,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          business_connection_id: business_connection_id,
+          chat_id: chat_id,
+          message_thread_id: message_thread_id,
+          direct_messages_topic_id: direct_messages_topic_id,
+          phone_number: phone_number,
+          first_name: first_name,
+          last_name: last_name,
+          vcard: vcard,
+          disable_notification: disable_notification,
+          protect_content: protect_content,
+          allow_paid_broadcast: allow_paid_broadcast,
+          message_effect_id: message_effect_id,
+          suggested_post_parameters: suggested_post_parameters,
+          reply_parameters: reply_parameters,
+          reply_markup: reply_markup,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/sendContact"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        Message.from_json(json_response["result"].to_json)
+        result_data = json_response["result"]
+        Message.from_json(result_data.to_json)
       end
 
       # sendPoll
@@ -1674,53 +1289,75 @@ module Telegram
       # Returns: Message
       # See: https://core.telegram.org/bots/api#sendpoll
       def send_poll(chat_id : Int32 | String, question : String, options : Array(InputPollOption), business_connection_id : String? = nil, message_thread_id : Int32? = nil, question_parse_mode : String? = nil, question_entities : Array(MessageEntity)? = nil, is_anonymous : Bool? = nil, type : String? = nil, allows_multiple_answers : Bool? = nil, correct_option_id : Int32? = nil, explanation : String? = nil, explanation_parse_mode : String? = nil, explanation_entities : Array(MessageEntity)? = nil, open_period : Int32? = nil, close_date : Int32? = nil, is_closed : Bool? = nil, disable_notification : Bool? = nil, protect_content : Bool? = nil, allow_paid_broadcast : Bool? = nil, message_effect_id : String? = nil, reply_parameters : ReplyParameters? = nil, reply_markup : InlineKeyboardMarkup | ReplyKeyboardMarkup | ReplyKeyboardRemove | ForceReply? = nil) : Message
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["business_connection_id"] = JSON::Any.new(business_connection_id) if business_connection_id
-        params["chat_id"] = JSON::Any.new(chat_id) if chat_id
-        params["message_thread_id"] = JSON::Any.new(message_thread_id) if message_thread_id
-        params["question"] = JSON::Any.new(question) if question
-        params["question_parse_mode"] = JSON::Any.new(question_parse_mode) if question_parse_mode
-        params["question_entities"] = JSON::Any.new(question_entities) if question_entities
-        params["options"] = JSON::Any.new(options) if options
-        params["is_anonymous"] = JSON::Any.new(is_anonymous) if is_anonymous
-        params["type"] = JSON::Any.new(type) if type
-        params["allows_multiple_answers"] = JSON::Any.new(allows_multiple_answers) if allows_multiple_answers
-        params["correct_option_id"] = JSON::Any.new(correct_option_id) if correct_option_id
-        params["explanation"] = JSON::Any.new(explanation) if explanation
-        params["explanation_parse_mode"] = JSON::Any.new(explanation_parse_mode) if explanation_parse_mode
-        params["explanation_entities"] = JSON::Any.new(explanation_entities) if explanation_entities
-        params["open_period"] = JSON::Any.new(open_period) if open_period
-        params["close_date"] = JSON::Any.new(close_date) if close_date
-        params["is_closed"] = JSON::Any.new(is_closed) if is_closed
-        params["disable_notification"] = JSON::Any.new(disable_notification) if disable_notification
-        params["protect_content"] = JSON::Any.new(protect_content) if protect_content
-        params["allow_paid_broadcast"] = JSON::Any.new(allow_paid_broadcast) if allow_paid_broadcast
-        params["message_effect_id"] = JSON::Any.new(message_effect_id) if message_effect_id
-        params["reply_parameters"] = JSON::Any.new(reply_parameters) if reply_parameters
-        params["reply_markup"] = JSON::Any.new(reply_markup) if reply_markup
+        # Collect parameters for file detection
+        params_hash = {
+          "business_connection_id" => business_connection_id,
+          "chat_id" => chat_id,
+          "message_thread_id" => message_thread_id,
+          "question" => question,
+          "question_parse_mode" => question_parse_mode,
+          "question_entities" => question_entities,
+          "options" => options,
+          "is_anonymous" => is_anonymous,
+          "type" => type,
+          "allows_multiple_answers" => allows_multiple_answers,
+          "correct_option_id" => correct_option_id,
+          "explanation" => explanation,
+          "explanation_parse_mode" => explanation_parse_mode,
+          "explanation_entities" => explanation_entities,
+          "open_period" => open_period,
+          "close_date" => close_date,
+          "is_closed" => is_closed,
+          "disable_notification" => disable_notification,
+          "protect_content" => protect_content,
+          "allow_paid_broadcast" => allow_paid_broadcast,
+          "message_effect_id" => message_effect_id,
+          "reply_parameters" => reply_parameters,
+          "reply_markup" => reply_markup,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          business_connection_id: business_connection_id,
+          chat_id: chat_id,
+          message_thread_id: message_thread_id,
+          question: question,
+          question_parse_mode: question_parse_mode,
+          question_entities: question_entities,
+          options: options,
+          is_anonymous: is_anonymous,
+          type: type,
+          allows_multiple_answers: allows_multiple_answers,
+          correct_option_id: correct_option_id,
+          explanation: explanation,
+          explanation_parse_mode: explanation_parse_mode,
+          explanation_entities: explanation_entities,
+          open_period: open_period,
+          close_date: close_date,
+          is_closed: is_closed,
+          disable_notification: disable_notification,
+          protect_content: protect_content,
+          allow_paid_broadcast: allow_paid_broadcast,
+          message_effect_id: message_effect_id,
+          reply_parameters: reply_parameters,
+          reply_markup: reply_markup,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/sendPoll"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        Message.from_json(json_response["result"].to_json)
+        result_data = json_response["result"]
+        Message.from_json(result_data.to_json)
       end
 
       # sendChecklist
@@ -1729,38 +1366,45 @@ module Telegram
       # Returns: Message
       # See: https://core.telegram.org/bots/api#sendchecklist
       def send_checklist(business_connection_id : String, chat_id : Int32, checklist : InputChecklist, disable_notification : Bool? = nil, protect_content : Bool? = nil, message_effect_id : String? = nil, reply_parameters : ReplyParameters? = nil, reply_markup : InlineKeyboardMarkup? = nil) : Message
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["business_connection_id"] = JSON::Any.new(business_connection_id) if business_connection_id
-        params["chat_id"] = JSON::Any.new(chat_id) if chat_id
-        params["checklist"] = JSON::Any.new(checklist) if checklist
-        params["disable_notification"] = JSON::Any.new(disable_notification) if disable_notification
-        params["protect_content"] = JSON::Any.new(protect_content) if protect_content
-        params["message_effect_id"] = JSON::Any.new(message_effect_id) if message_effect_id
-        params["reply_parameters"] = JSON::Any.new(reply_parameters) if reply_parameters
-        params["reply_markup"] = JSON::Any.new(reply_markup) if reply_markup
+        # Collect parameters for file detection
+        params_hash = {
+          "business_connection_id" => business_connection_id,
+          "chat_id" => chat_id,
+          "checklist" => checklist,
+          "disable_notification" => disable_notification,
+          "protect_content" => protect_content,
+          "message_effect_id" => message_effect_id,
+          "reply_parameters" => reply_parameters,
+          "reply_markup" => reply_markup,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          business_connection_id: business_connection_id,
+          chat_id: chat_id,
+          checklist: checklist,
+          disable_notification: disable_notification,
+          protect_content: protect_content,
+          message_effect_id: message_effect_id,
+          reply_parameters: reply_parameters,
+          reply_markup: reply_markup,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/sendChecklist"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        Message.from_json(json_response["result"].to_json)
+        result_data = json_response["result"]
+        Message.from_json(result_data.to_json)
       end
 
       # sendDice
@@ -1769,42 +1413,53 @@ module Telegram
       # Returns: Message
       # See: https://core.telegram.org/bots/api#senddice
       def send_dice(chat_id : Int32 | String, business_connection_id : String? = nil, message_thread_id : Int32? = nil, direct_messages_topic_id : Int32? = nil, emoji : String? = nil, disable_notification : Bool? = nil, protect_content : Bool? = nil, allow_paid_broadcast : Bool? = nil, message_effect_id : String? = nil, suggested_post_parameters : SuggestedPostParameters? = nil, reply_parameters : ReplyParameters? = nil, reply_markup : InlineKeyboardMarkup | ReplyKeyboardMarkup | ReplyKeyboardRemove | ForceReply? = nil) : Message
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["business_connection_id"] = JSON::Any.new(business_connection_id) if business_connection_id
-        params["chat_id"] = JSON::Any.new(chat_id) if chat_id
-        params["message_thread_id"] = JSON::Any.new(message_thread_id) if message_thread_id
-        params["direct_messages_topic_id"] = JSON::Any.new(direct_messages_topic_id) if direct_messages_topic_id
-        params["emoji"] = JSON::Any.new(emoji) if emoji
-        params["disable_notification"] = JSON::Any.new(disable_notification) if disable_notification
-        params["protect_content"] = JSON::Any.new(protect_content) if protect_content
-        params["allow_paid_broadcast"] = JSON::Any.new(allow_paid_broadcast) if allow_paid_broadcast
-        params["message_effect_id"] = JSON::Any.new(message_effect_id) if message_effect_id
-        params["suggested_post_parameters"] = JSON::Any.new(suggested_post_parameters) if suggested_post_parameters
-        params["reply_parameters"] = JSON::Any.new(reply_parameters) if reply_parameters
-        params["reply_markup"] = JSON::Any.new(reply_markup) if reply_markup
+        # Collect parameters for file detection
+        params_hash = {
+          "business_connection_id" => business_connection_id,
+          "chat_id" => chat_id,
+          "message_thread_id" => message_thread_id,
+          "direct_messages_topic_id" => direct_messages_topic_id,
+          "emoji" => emoji,
+          "disable_notification" => disable_notification,
+          "protect_content" => protect_content,
+          "allow_paid_broadcast" => allow_paid_broadcast,
+          "message_effect_id" => message_effect_id,
+          "suggested_post_parameters" => suggested_post_parameters,
+          "reply_parameters" => reply_parameters,
+          "reply_markup" => reply_markup,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          business_connection_id: business_connection_id,
+          chat_id: chat_id,
+          message_thread_id: message_thread_id,
+          direct_messages_topic_id: direct_messages_topic_id,
+          emoji: emoji,
+          disable_notification: disable_notification,
+          protect_content: protect_content,
+          allow_paid_broadcast: allow_paid_broadcast,
+          message_effect_id: message_effect_id,
+          suggested_post_parameters: suggested_post_parameters,
+          reply_parameters: reply_parameters,
+          reply_markup: reply_markup,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/sendDice"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        Message.from_json(json_response["result"].to_json)
+        result_data = json_response["result"]
+        Message.from_json(result_data.to_json)
       end
 
       # sendChatAction
@@ -1814,34 +1469,37 @@ module Telegram
       # Returns: Bool
       # See: https://core.telegram.org/bots/api#sendchataction
       def send_chat_action(chat_id : Int32 | String, action : String, business_connection_id : String? = nil, message_thread_id : Int32? = nil) : Bool
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["business_connection_id"] = JSON::Any.new(business_connection_id) if business_connection_id
-        params["chat_id"] = JSON::Any.new(chat_id) if chat_id
-        params["message_thread_id"] = JSON::Any.new(message_thread_id) if message_thread_id
-        params["action"] = JSON::Any.new(action) if action
+        # Collect parameters for file detection
+        params_hash = {
+          "business_connection_id" => business_connection_id,
+          "chat_id" => chat_id,
+          "message_thread_id" => message_thread_id,
+          "action" => action,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          business_connection_id: business_connection_id,
+          chat_id: chat_id,
+          message_thread_id: message_thread_id,
+          action: action,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/sendChatAction"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"].as_bool
+        result_data = json_response["result"]
+        Bool.from_json(result_data.to_json)
       end
 
       # setMessageReaction
@@ -1850,34 +1508,37 @@ module Telegram
       # Returns: Bool
       # See: https://core.telegram.org/bots/api#setmessagereaction
       def set_message_reaction(chat_id : Int32 | String, message_id : Int32, reaction : Array(ReactionType)? = nil, is_big : Bool? = nil) : Bool
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["chat_id"] = JSON::Any.new(chat_id) if chat_id
-        params["message_id"] = JSON::Any.new(message_id) if message_id
-        params["reaction"] = JSON::Any.new(reaction) if reaction
-        params["is_big"] = JSON::Any.new(is_big) if is_big
+        # Collect parameters for file detection
+        params_hash = {
+          "chat_id" => chat_id,
+          "message_id" => message_id,
+          "reaction" => reaction,
+          "is_big" => is_big,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          chat_id: chat_id,
+          message_id: message_id,
+          reaction: reaction,
+          is_big: is_big,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/setMessageReaction"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"].as_bool
+        result_data = json_response["result"]
+        Bool.from_json(result_data.to_json)
       end
 
       # getUserProfilePhotos
@@ -1886,33 +1547,35 @@ module Telegram
       # Returns: UserProfilePhotos
       # See: https://core.telegram.org/bots/api#getuserprofilephotos
       def get_user_profile_photos(user_id : Int32, offset : Int32? = nil, limit : Int32? = nil) : UserProfilePhotos
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["user_id"] = JSON::Any.new(user_id) if user_id
-        params["offset"] = JSON::Any.new(offset) if offset
-        params["limit"] = JSON::Any.new(limit) if limit
+        # Collect parameters for file detection
+        params_hash = {
+          "user_id" => user_id,
+          "offset" => offset,
+          "limit" => limit,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          user_id: user_id,
+          offset: offset,
+          limit: limit,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/getUserProfilePhotos"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        UserProfilePhotos.from_json(json_response["result"].to_json)
+        result_data = json_response["result"]
+        UserProfilePhotos.from_json(result_data.to_json)
       end
 
       # setUserEmojiStatus
@@ -1921,33 +1584,35 @@ module Telegram
       # Returns: Bool
       # See: https://core.telegram.org/bots/api#setuseremojistatus
       def set_user_emoji_status(user_id : Int32, emoji_status_custom_emoji_id : String? = nil, emoji_status_expiration_date : Int32? = nil) : Bool
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["user_id"] = JSON::Any.new(user_id) if user_id
-        params["emoji_status_custom_emoji_id"] = JSON::Any.new(emoji_status_custom_emoji_id) if emoji_status_custom_emoji_id
-        params["emoji_status_expiration_date"] = JSON::Any.new(emoji_status_expiration_date) if emoji_status_expiration_date
+        # Collect parameters for file detection
+        params_hash = {
+          "user_id" => user_id,
+          "emoji_status_custom_emoji_id" => emoji_status_custom_emoji_id,
+          "emoji_status_expiration_date" => emoji_status_expiration_date,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          user_id: user_id,
+          emoji_status_custom_emoji_id: emoji_status_custom_emoji_id,
+          emoji_status_expiration_date: emoji_status_expiration_date,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/setUserEmojiStatus"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"].as_bool
+        result_data = json_response["result"]
+        Bool.from_json(result_data.to_json)
       end
 
       # getFile
@@ -1957,31 +1622,31 @@ module Telegram
       # Returns: TelegramFile
       # See: https://core.telegram.org/bots/api#getfile
       def get_file(file_id : String) : TelegramFile
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["file_id"] = JSON::Any.new(file_id) if file_id
+        # Collect parameters for file detection
+        params_hash = {
+          "file_id" => file_id,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          file_id: file_id,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/getFile"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        TelegramFile.from_json(json_response["result"].to_json)
+        result_data = json_response["result"]
+        TelegramFile.from_json(result_data.to_json)
       end
 
       # banChatMember
@@ -1990,34 +1655,37 @@ module Telegram
       # Returns: Bool
       # See: https://core.telegram.org/bots/api#banchatmember
       def ban_chat_member(chat_id : Int32 | String, user_id : Int32, until_date : Int32? = nil, revoke_messages : Bool? = nil) : Bool
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["chat_id"] = JSON::Any.new(chat_id) if chat_id
-        params["user_id"] = JSON::Any.new(user_id) if user_id
-        params["until_date"] = JSON::Any.new(until_date) if until_date
-        params["revoke_messages"] = JSON::Any.new(revoke_messages) if revoke_messages
+        # Collect parameters for file detection
+        params_hash = {
+          "chat_id" => chat_id,
+          "user_id" => user_id,
+          "until_date" => until_date,
+          "revoke_messages" => revoke_messages,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          chat_id: chat_id,
+          user_id: user_id,
+          until_date: until_date,
+          revoke_messages: revoke_messages,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/banChatMember"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"].as_bool
+        result_data = json_response["result"]
+        Bool.from_json(result_data.to_json)
       end
 
       # unbanChatMember
@@ -2026,33 +1694,35 @@ module Telegram
       # Returns: Bool
       # See: https://core.telegram.org/bots/api#unbanchatmember
       def unban_chat_member(chat_id : Int32 | String, user_id : Int32, only_if_banned : Bool? = nil) : Bool
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["chat_id"] = JSON::Any.new(chat_id) if chat_id
-        params["user_id"] = JSON::Any.new(user_id) if user_id
-        params["only_if_banned"] = JSON::Any.new(only_if_banned) if only_if_banned
+        # Collect parameters for file detection
+        params_hash = {
+          "chat_id" => chat_id,
+          "user_id" => user_id,
+          "only_if_banned" => only_if_banned,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          chat_id: chat_id,
+          user_id: user_id,
+          only_if_banned: only_if_banned,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/unbanChatMember"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"].as_bool
+        result_data = json_response["result"]
+        Bool.from_json(result_data.to_json)
       end
 
       # restrictChatMember
@@ -2061,35 +1731,39 @@ module Telegram
       # Returns: Bool
       # See: https://core.telegram.org/bots/api#restrictchatmember
       def restrict_chat_member(chat_id : Int32 | String, user_id : Int32, permissions : ChatPermissions, use_independent_chat_permissions : Bool? = nil, until_date : Int32? = nil) : Bool
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["chat_id"] = JSON::Any.new(chat_id) if chat_id
-        params["user_id"] = JSON::Any.new(user_id) if user_id
-        params["permissions"] = JSON::Any.new(permissions) if permissions
-        params["use_independent_chat_permissions"] = JSON::Any.new(use_independent_chat_permissions) if use_independent_chat_permissions
-        params["until_date"] = JSON::Any.new(until_date) if until_date
+        # Collect parameters for file detection
+        params_hash = {
+          "chat_id" => chat_id,
+          "user_id" => user_id,
+          "permissions" => permissions,
+          "use_independent_chat_permissions" => use_independent_chat_permissions,
+          "until_date" => until_date,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          chat_id: chat_id,
+          user_id: user_id,
+          permissions: permissions,
+          use_independent_chat_permissions: use_independent_chat_permissions,
+          until_date: until_date,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/restrictChatMember"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"].as_bool
+        result_data = json_response["result"]
+        Bool.from_json(result_data.to_json)
       end
 
       # promoteChatMember
@@ -2098,48 +1772,65 @@ module Telegram
       # Returns: Bool
       # See: https://core.telegram.org/bots/api#promotechatmember
       def promote_chat_member(chat_id : Int32 | String, user_id : Int32, is_anonymous : Bool? = nil, can_manage_chat : Bool? = nil, can_delete_messages : Bool? = nil, can_manage_video_chats : Bool? = nil, can_restrict_members : Bool? = nil, can_promote_members : Bool? = nil, can_change_info : Bool? = nil, can_invite_users : Bool? = nil, can_post_stories : Bool? = nil, can_edit_stories : Bool? = nil, can_delete_stories : Bool? = nil, can_post_messages : Bool? = nil, can_edit_messages : Bool? = nil, can_pin_messages : Bool? = nil, can_manage_topics : Bool? = nil, can_manage_direct_messages : Bool? = nil) : Bool
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["chat_id"] = JSON::Any.new(chat_id) if chat_id
-        params["user_id"] = JSON::Any.new(user_id) if user_id
-        params["is_anonymous"] = JSON::Any.new(is_anonymous) if is_anonymous
-        params["can_manage_chat"] = JSON::Any.new(can_manage_chat) if can_manage_chat
-        params["can_delete_messages"] = JSON::Any.new(can_delete_messages) if can_delete_messages
-        params["can_manage_video_chats"] = JSON::Any.new(can_manage_video_chats) if can_manage_video_chats
-        params["can_restrict_members"] = JSON::Any.new(can_restrict_members) if can_restrict_members
-        params["can_promote_members"] = JSON::Any.new(can_promote_members) if can_promote_members
-        params["can_change_info"] = JSON::Any.new(can_change_info) if can_change_info
-        params["can_invite_users"] = JSON::Any.new(can_invite_users) if can_invite_users
-        params["can_post_stories"] = JSON::Any.new(can_post_stories) if can_post_stories
-        params["can_edit_stories"] = JSON::Any.new(can_edit_stories) if can_edit_stories
-        params["can_delete_stories"] = JSON::Any.new(can_delete_stories) if can_delete_stories
-        params["can_post_messages"] = JSON::Any.new(can_post_messages) if can_post_messages
-        params["can_edit_messages"] = JSON::Any.new(can_edit_messages) if can_edit_messages
-        params["can_pin_messages"] = JSON::Any.new(can_pin_messages) if can_pin_messages
-        params["can_manage_topics"] = JSON::Any.new(can_manage_topics) if can_manage_topics
-        params["can_manage_direct_messages"] = JSON::Any.new(can_manage_direct_messages) if can_manage_direct_messages
+        # Collect parameters for file detection
+        params_hash = {
+          "chat_id" => chat_id,
+          "user_id" => user_id,
+          "is_anonymous" => is_anonymous,
+          "can_manage_chat" => can_manage_chat,
+          "can_delete_messages" => can_delete_messages,
+          "can_manage_video_chats" => can_manage_video_chats,
+          "can_restrict_members" => can_restrict_members,
+          "can_promote_members" => can_promote_members,
+          "can_change_info" => can_change_info,
+          "can_invite_users" => can_invite_users,
+          "can_post_stories" => can_post_stories,
+          "can_edit_stories" => can_edit_stories,
+          "can_delete_stories" => can_delete_stories,
+          "can_post_messages" => can_post_messages,
+          "can_edit_messages" => can_edit_messages,
+          "can_pin_messages" => can_pin_messages,
+          "can_manage_topics" => can_manage_topics,
+          "can_manage_direct_messages" => can_manage_direct_messages,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          chat_id: chat_id,
+          user_id: user_id,
+          is_anonymous: is_anonymous,
+          can_manage_chat: can_manage_chat,
+          can_delete_messages: can_delete_messages,
+          can_manage_video_chats: can_manage_video_chats,
+          can_restrict_members: can_restrict_members,
+          can_promote_members: can_promote_members,
+          can_change_info: can_change_info,
+          can_invite_users: can_invite_users,
+          can_post_stories: can_post_stories,
+          can_edit_stories: can_edit_stories,
+          can_delete_stories: can_delete_stories,
+          can_post_messages: can_post_messages,
+          can_edit_messages: can_edit_messages,
+          can_pin_messages: can_pin_messages,
+          can_manage_topics: can_manage_topics,
+          can_manage_direct_messages: can_manage_direct_messages,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/promoteChatMember"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"].as_bool
+        result_data = json_response["result"]
+        Bool.from_json(result_data.to_json)
       end
 
       # setChatAdministratorCustomTitle
@@ -2148,33 +1839,35 @@ module Telegram
       # Returns: Bool
       # See: https://core.telegram.org/bots/api#setchatadministratorcustomtitle
       def set_chat_administrator_custom_title(chat_id : Int32 | String, user_id : Int32, custom_title : String) : Bool
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["chat_id"] = JSON::Any.new(chat_id) if chat_id
-        params["user_id"] = JSON::Any.new(user_id) if user_id
-        params["custom_title"] = JSON::Any.new(custom_title) if custom_title
+        # Collect parameters for file detection
+        params_hash = {
+          "chat_id" => chat_id,
+          "user_id" => user_id,
+          "custom_title" => custom_title,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          chat_id: chat_id,
+          user_id: user_id,
+          custom_title: custom_title,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/setChatAdministratorCustomTitle"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"].as_bool
+        result_data = json_response["result"]
+        Bool.from_json(result_data.to_json)
       end
 
       # banChatSenderChat
@@ -2183,32 +1876,33 @@ module Telegram
       # Returns: Bool
       # See: https://core.telegram.org/bots/api#banchatsenderchat
       def ban_chat_sender_chat(chat_id : Int32 | String, sender_chat_id : Int32) : Bool
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["chat_id"] = JSON::Any.new(chat_id) if chat_id
-        params["sender_chat_id"] = JSON::Any.new(sender_chat_id) if sender_chat_id
+        # Collect parameters for file detection
+        params_hash = {
+          "chat_id" => chat_id,
+          "sender_chat_id" => sender_chat_id,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          chat_id: chat_id,
+          sender_chat_id: sender_chat_id,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/banChatSenderChat"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"].as_bool
+        result_data = json_response["result"]
+        Bool.from_json(result_data.to_json)
       end
 
       # unbanChatSenderChat
@@ -2217,32 +1911,33 @@ module Telegram
       # Returns: Bool
       # See: https://core.telegram.org/bots/api#unbanchatsenderchat
       def unban_chat_sender_chat(chat_id : Int32 | String, sender_chat_id : Int32) : Bool
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["chat_id"] = JSON::Any.new(chat_id) if chat_id
-        params["sender_chat_id"] = JSON::Any.new(sender_chat_id) if sender_chat_id
+        # Collect parameters for file detection
+        params_hash = {
+          "chat_id" => chat_id,
+          "sender_chat_id" => sender_chat_id,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          chat_id: chat_id,
+          sender_chat_id: sender_chat_id,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/unbanChatSenderChat"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"].as_bool
+        result_data = json_response["result"]
+        Bool.from_json(result_data.to_json)
       end
 
       # setChatPermissions
@@ -2251,33 +1946,35 @@ module Telegram
       # Returns: Bool
       # See: https://core.telegram.org/bots/api#setchatpermissions
       def set_chat_permissions(chat_id : Int32 | String, permissions : ChatPermissions, use_independent_chat_permissions : Bool? = nil) : Bool
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["chat_id"] = JSON::Any.new(chat_id) if chat_id
-        params["permissions"] = JSON::Any.new(permissions) if permissions
-        params["use_independent_chat_permissions"] = JSON::Any.new(use_independent_chat_permissions) if use_independent_chat_permissions
+        # Collect parameters for file detection
+        params_hash = {
+          "chat_id" => chat_id,
+          "permissions" => permissions,
+          "use_independent_chat_permissions" => use_independent_chat_permissions,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          chat_id: chat_id,
+          permissions: permissions,
+          use_independent_chat_permissions: use_independent_chat_permissions,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/setChatPermissions"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"].as_bool
+        result_data = json_response["result"]
+        Bool.from_json(result_data.to_json)
       end
 
       # exportChatInviteLink
@@ -2286,31 +1983,31 @@ module Telegram
       # Returns: String
       # See: https://core.telegram.org/bots/api#exportchatinvitelink
       def export_chat_invite_link(chat_id : Int32 | String) : String
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["chat_id"] = JSON::Any.new(chat_id) if chat_id
+        # Collect parameters for file detection
+        params_hash = {
+          "chat_id" => chat_id,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          chat_id: chat_id,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/exportChatInviteLink"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"].as_s
+        result_data = json_response["result"]
+        String.from_json(result_data.to_json)
       end
 
       # createChatInviteLink
@@ -2319,35 +2016,39 @@ module Telegram
       # Returns: ChatInviteLink
       # See: https://core.telegram.org/bots/api#createchatinvitelink
       def create_chat_invite_link(chat_id : Int32 | String, name : String? = nil, expire_date : Int32? = nil, member_limit : Int32? = nil, creates_join_request : Bool? = nil) : ChatInviteLink
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["chat_id"] = JSON::Any.new(chat_id) if chat_id
-        params["name"] = JSON::Any.new(name) if name
-        params["expire_date"] = JSON::Any.new(expire_date) if expire_date
-        params["member_limit"] = JSON::Any.new(member_limit) if member_limit
-        params["creates_join_request"] = JSON::Any.new(creates_join_request) if creates_join_request
+        # Collect parameters for file detection
+        params_hash = {
+          "chat_id" => chat_id,
+          "name" => name,
+          "expire_date" => expire_date,
+          "member_limit" => member_limit,
+          "creates_join_request" => creates_join_request,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          chat_id: chat_id,
+          name: name,
+          expire_date: expire_date,
+          member_limit: member_limit,
+          creates_join_request: creates_join_request,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/createChatInviteLink"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        ChatInviteLink.from_json(json_response["result"].to_json)
+        result_data = json_response["result"]
+        ChatInviteLink.from_json(result_data.to_json)
       end
 
       # editChatInviteLink
@@ -2356,36 +2057,41 @@ module Telegram
       # Returns: ChatInviteLink
       # See: https://core.telegram.org/bots/api#editchatinvitelink
       def edit_chat_invite_link(chat_id : Int32 | String, invite_link : String, name : String? = nil, expire_date : Int32? = nil, member_limit : Int32? = nil, creates_join_request : Bool? = nil) : ChatInviteLink
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["chat_id"] = JSON::Any.new(chat_id) if chat_id
-        params["invite_link"] = JSON::Any.new(invite_link) if invite_link
-        params["name"] = JSON::Any.new(name) if name
-        params["expire_date"] = JSON::Any.new(expire_date) if expire_date
-        params["member_limit"] = JSON::Any.new(member_limit) if member_limit
-        params["creates_join_request"] = JSON::Any.new(creates_join_request) if creates_join_request
+        # Collect parameters for file detection
+        params_hash = {
+          "chat_id" => chat_id,
+          "invite_link" => invite_link,
+          "name" => name,
+          "expire_date" => expire_date,
+          "member_limit" => member_limit,
+          "creates_join_request" => creates_join_request,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          chat_id: chat_id,
+          invite_link: invite_link,
+          name: name,
+          expire_date: expire_date,
+          member_limit: member_limit,
+          creates_join_request: creates_join_request,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/editChatInviteLink"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        ChatInviteLink.from_json(json_response["result"].to_json)
+        result_data = json_response["result"]
+        ChatInviteLink.from_json(result_data.to_json)
       end
 
       # createChatSubscriptionInviteLink
@@ -2394,34 +2100,37 @@ module Telegram
       # Returns: ChatInviteLink
       # See: https://core.telegram.org/bots/api#createchatsubscriptioninvitelink
       def create_chat_subscription_invite_link(chat_id : Int32 | String, subscription_period : Int32, subscription_price : Int32, name : String? = nil) : ChatInviteLink
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["chat_id"] = JSON::Any.new(chat_id) if chat_id
-        params["name"] = JSON::Any.new(name) if name
-        params["subscription_period"] = JSON::Any.new(subscription_period) if subscription_period
-        params["subscription_price"] = JSON::Any.new(subscription_price) if subscription_price
+        # Collect parameters for file detection
+        params_hash = {
+          "chat_id" => chat_id,
+          "name" => name,
+          "subscription_period" => subscription_period,
+          "subscription_price" => subscription_price,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          chat_id: chat_id,
+          name: name,
+          subscription_period: subscription_period,
+          subscription_price: subscription_price,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/createChatSubscriptionInviteLink"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        ChatInviteLink.from_json(json_response["result"].to_json)
+        result_data = json_response["result"]
+        ChatInviteLink.from_json(result_data.to_json)
       end
 
       # editChatSubscriptionInviteLink
@@ -2430,33 +2139,35 @@ module Telegram
       # Returns: ChatInviteLink
       # See: https://core.telegram.org/bots/api#editchatsubscriptioninvitelink
       def edit_chat_subscription_invite_link(chat_id : Int32 | String, invite_link : String, name : String? = nil) : ChatInviteLink
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["chat_id"] = JSON::Any.new(chat_id) if chat_id
-        params["invite_link"] = JSON::Any.new(invite_link) if invite_link
-        params["name"] = JSON::Any.new(name) if name
+        # Collect parameters for file detection
+        params_hash = {
+          "chat_id" => chat_id,
+          "invite_link" => invite_link,
+          "name" => name,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          chat_id: chat_id,
+          invite_link: invite_link,
+          name: name,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/editChatSubscriptionInviteLink"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        ChatInviteLink.from_json(json_response["result"].to_json)
+        result_data = json_response["result"]
+        ChatInviteLink.from_json(result_data.to_json)
       end
 
       # revokeChatInviteLink
@@ -2465,32 +2176,33 @@ module Telegram
       # Returns: ChatInviteLink
       # See: https://core.telegram.org/bots/api#revokechatinvitelink
       def revoke_chat_invite_link(chat_id : Int32 | String, invite_link : String) : ChatInviteLink
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["chat_id"] = JSON::Any.new(chat_id) if chat_id
-        params["invite_link"] = JSON::Any.new(invite_link) if invite_link
+        # Collect parameters for file detection
+        params_hash = {
+          "chat_id" => chat_id,
+          "invite_link" => invite_link,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          chat_id: chat_id,
+          invite_link: invite_link,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/revokeChatInviteLink"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        ChatInviteLink.from_json(json_response["result"].to_json)
+        result_data = json_response["result"]
+        ChatInviteLink.from_json(result_data.to_json)
       end
 
       # approveChatJoinRequest
@@ -2499,32 +2211,33 @@ module Telegram
       # Returns: Bool
       # See: https://core.telegram.org/bots/api#approvechatjoinrequest
       def approve_chat_join_request(chat_id : Int32 | String, user_id : Int32) : Bool
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["chat_id"] = JSON::Any.new(chat_id) if chat_id
-        params["user_id"] = JSON::Any.new(user_id) if user_id
+        # Collect parameters for file detection
+        params_hash = {
+          "chat_id" => chat_id,
+          "user_id" => user_id,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          chat_id: chat_id,
+          user_id: user_id,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/approveChatJoinRequest"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"].as_bool
+        result_data = json_response["result"]
+        Bool.from_json(result_data.to_json)
       end
 
       # declineChatJoinRequest
@@ -2533,32 +2246,33 @@ module Telegram
       # Returns: Bool
       # See: https://core.telegram.org/bots/api#declinechatjoinrequest
       def decline_chat_join_request(chat_id : Int32 | String, user_id : Int32) : Bool
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["chat_id"] = JSON::Any.new(chat_id) if chat_id
-        params["user_id"] = JSON::Any.new(user_id) if user_id
+        # Collect parameters for file detection
+        params_hash = {
+          "chat_id" => chat_id,
+          "user_id" => user_id,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          chat_id: chat_id,
+          user_id: user_id,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/declineChatJoinRequest"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"].as_bool
+        result_data = json_response["result"]
+        Bool.from_json(result_data.to_json)
       end
 
       # setChatPhoto
@@ -2566,54 +2280,43 @@ module Telegram
       #
       # Returns: Bool
       # See: https://core.telegram.org/bots/api#setchatphoto
-      def set_chat_photo(chat_id : Int32 | String, photo : File | IO) : Bool
-        # Build multipart form data for file upload
-        boundary = MIME::Multipart.generate_boundary
-        form_body = MIME::Multipart.build(boundary) do |builder|
-          if chat_id
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"chat_id\""}
-            builder.body_part(headers, chat_id.to_s)
-          end
-          if photo
-            if photo.is_a?(File)
-              file_io = photo
-              filename = File.basename(photo.path)
-            elsif photo.is_a?(IO)
-              file_io = photo
-              filename = "file"
-            else
-              file_io = IO::Memory.new(photo.to_s)
-              filename = "file"
-            end
-            headers = HTTP::Headers{
-              "Content-Disposition" => "form-data; name=\"photo\"; filename=\"#{filename}\"",
-              "Content-Type" => "application/octet-stream"
-            }
-            builder.body_part(headers, file_io)
-          end
+      def set_chat_photo(chat_id : Int32 | String, photo : Telegram::InputFile | File | IO) : Bool
+        # Collect parameters for file detection
+        params_hash = {
+          "chat_id" => chat_id,
+          "photo" => photo,
+        }
+
+        # Runtime detection: check if any parameters contain actual file data
+        has_files = contains_file_data?(params_hash)
+
+        if has_files
+          # Use multipart form data for file uploads
+          boundary, form_body = build_multipart_form_with_files(params_hash)
+          
+          # Make HTTP request with multipart form using enhanced client
+          url = "#{@api_url}/bot#{@token}/setChatPhoto"
+          response = @http_client.post_multipart(url, {boundary, form_body})
+        else
+          # Use JSON request when no files are present
+          params = build_request_hash_from_hash(params_hash)
+          
+          # Make HTTP request using enhanced client
+          url = "#{@api_url}/bot#{@token}/setChatPhoto"
+          response = @http_client.post(url,
+            headers: HTTP::Headers{"Content-Type" => "application/json"},
+            body: params.to_json
+          )
         end
 
-        # Make HTTP request with multipart form
-        url = "#{@api_url}/bot#{@token}/setChatPhoto"
-        response = HTTP::Client.post(url,
-          headers: HTTP::Headers{"Content-Type" => "multipart/form-data; boundary=#{boundary}"},
-          body: form_body
-        )
-
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"].as_bool
+        result_data = json_response["result"]
+        Bool.from_json(result_data.to_json)
       end
 
       # deleteChatPhoto
@@ -2622,31 +2325,31 @@ module Telegram
       # Returns: Bool
       # See: https://core.telegram.org/bots/api#deletechatphoto
       def delete_chat_photo(chat_id : Int32 | String) : Bool
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["chat_id"] = JSON::Any.new(chat_id) if chat_id
+        # Collect parameters for file detection
+        params_hash = {
+          "chat_id" => chat_id,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          chat_id: chat_id,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/deleteChatPhoto"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"].as_bool
+        result_data = json_response["result"]
+        Bool.from_json(result_data.to_json)
       end
 
       # setChatTitle
@@ -2655,32 +2358,33 @@ module Telegram
       # Returns: Bool
       # See: https://core.telegram.org/bots/api#setchattitle
       def set_chat_title(chat_id : Int32 | String, title : String) : Bool
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["chat_id"] = JSON::Any.new(chat_id) if chat_id
-        params["title"] = JSON::Any.new(title) if title
+        # Collect parameters for file detection
+        params_hash = {
+          "chat_id" => chat_id,
+          "title" => title,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          chat_id: chat_id,
+          title: title,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/setChatTitle"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"].as_bool
+        result_data = json_response["result"]
+        Bool.from_json(result_data.to_json)
       end
 
       # setChatDescription
@@ -2689,32 +2393,33 @@ module Telegram
       # Returns: Bool
       # See: https://core.telegram.org/bots/api#setchatdescription
       def set_chat_description(chat_id : Int32 | String, description : String? = nil) : Bool
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["chat_id"] = JSON::Any.new(chat_id) if chat_id
-        params["description"] = JSON::Any.new(description) if description
+        # Collect parameters for file detection
+        params_hash = {
+          "chat_id" => chat_id,
+          "description" => description,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          chat_id: chat_id,
+          description: description,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/setChatDescription"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"].as_bool
+        result_data = json_response["result"]
+        Bool.from_json(result_data.to_json)
       end
 
       # pinChatMessage
@@ -2723,34 +2428,37 @@ module Telegram
       # Returns: Bool
       # See: https://core.telegram.org/bots/api#pinchatmessage
       def pin_chat_message(chat_id : Int32 | String, message_id : Int32, business_connection_id : String? = nil, disable_notification : Bool? = nil) : Bool
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["business_connection_id"] = JSON::Any.new(business_connection_id) if business_connection_id
-        params["chat_id"] = JSON::Any.new(chat_id) if chat_id
-        params["message_id"] = JSON::Any.new(message_id) if message_id
-        params["disable_notification"] = JSON::Any.new(disable_notification) if disable_notification
+        # Collect parameters for file detection
+        params_hash = {
+          "business_connection_id" => business_connection_id,
+          "chat_id" => chat_id,
+          "message_id" => message_id,
+          "disable_notification" => disable_notification,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          business_connection_id: business_connection_id,
+          chat_id: chat_id,
+          message_id: message_id,
+          disable_notification: disable_notification,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/pinChatMessage"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"].as_bool
+        result_data = json_response["result"]
+        Bool.from_json(result_data.to_json)
       end
 
       # unpinChatMessage
@@ -2759,33 +2467,35 @@ module Telegram
       # Returns: Bool
       # See: https://core.telegram.org/bots/api#unpinchatmessage
       def unpin_chat_message(chat_id : Int32 | String, business_connection_id : String? = nil, message_id : Int32? = nil) : Bool
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["business_connection_id"] = JSON::Any.new(business_connection_id) if business_connection_id
-        params["chat_id"] = JSON::Any.new(chat_id) if chat_id
-        params["message_id"] = JSON::Any.new(message_id) if message_id
+        # Collect parameters for file detection
+        params_hash = {
+          "business_connection_id" => business_connection_id,
+          "chat_id" => chat_id,
+          "message_id" => message_id,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          business_connection_id: business_connection_id,
+          chat_id: chat_id,
+          message_id: message_id,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/unpinChatMessage"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"].as_bool
+        result_data = json_response["result"]
+        Bool.from_json(result_data.to_json)
       end
 
       # unpinAllChatMessages
@@ -2794,31 +2504,31 @@ module Telegram
       # Returns: Bool
       # See: https://core.telegram.org/bots/api#unpinallchatmessages
       def unpin_all_chat_messages(chat_id : Int32 | String) : Bool
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["chat_id"] = JSON::Any.new(chat_id) if chat_id
+        # Collect parameters for file detection
+        params_hash = {
+          "chat_id" => chat_id,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          chat_id: chat_id,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/unpinAllChatMessages"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"].as_bool
+        result_data = json_response["result"]
+        Bool.from_json(result_data.to_json)
       end
 
       # leaveChat
@@ -2827,31 +2537,31 @@ module Telegram
       # Returns: Bool
       # See: https://core.telegram.org/bots/api#leavechat
       def leave_chat(chat_id : Int32 | String) : Bool
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["chat_id"] = JSON::Any.new(chat_id) if chat_id
+        # Collect parameters for file detection
+        params_hash = {
+          "chat_id" => chat_id,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          chat_id: chat_id,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/leaveChat"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"].as_bool
+        result_data = json_response["result"]
+        Bool.from_json(result_data.to_json)
       end
 
       # getChat
@@ -2860,31 +2570,31 @@ module Telegram
       # Returns: ChatFullInfo
       # See: https://core.telegram.org/bots/api#getchat
       def get_chat(chat_id : Int32 | String) : ChatFullInfo
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["chat_id"] = JSON::Any.new(chat_id) if chat_id
+        # Collect parameters for file detection
+        params_hash = {
+          "chat_id" => chat_id,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          chat_id: chat_id,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/getChat"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        ChatFullInfo.from_json(json_response["result"].to_json)
+        result_data = json_response["result"]
+        ChatFullInfo.from_json(result_data.to_json)
       end
 
       # getChatAdministrators
@@ -2893,31 +2603,31 @@ module Telegram
       # Returns: Array(ChatMember)
       # See: https://core.telegram.org/bots/api#getchatadministrators
       def get_chat_administrators(chat_id : Int32 | String) : Array(ChatMember)
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["chat_id"] = JSON::Any.new(chat_id) if chat_id
+        # Collect parameters for file detection
+        params_hash = {
+          "chat_id" => chat_id,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          chat_id: chat_id,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/getChatAdministrators"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"].as_a.map { |item| ChatMember.from_json(item.to_json) }
+        result_data = json_response["result"]
+        Array(ChatMember).from_json(result_data.to_json)
       end
 
       # getChatMemberCount
@@ -2926,31 +2636,31 @@ module Telegram
       # Returns: Int32
       # See: https://core.telegram.org/bots/api#getchatmembercount
       def get_chat_member_count(chat_id : Int32 | String) : Int32
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["chat_id"] = JSON::Any.new(chat_id) if chat_id
+        # Collect parameters for file detection
+        params_hash = {
+          "chat_id" => chat_id,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          chat_id: chat_id,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/getChatMemberCount"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"].as_i
+        result_data = json_response["result"]
+        Int32.from_json(result_data.to_json)
       end
 
       # getChatMember
@@ -2959,32 +2669,33 @@ module Telegram
       # Returns: ChatMember
       # See: https://core.telegram.org/bots/api#getchatmember
       def get_chat_member(chat_id : Int32 | String, user_id : Int32) : ChatMember
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["chat_id"] = JSON::Any.new(chat_id) if chat_id
-        params["user_id"] = JSON::Any.new(user_id) if user_id
+        # Collect parameters for file detection
+        params_hash = {
+          "chat_id" => chat_id,
+          "user_id" => user_id,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          chat_id: chat_id,
+          user_id: user_id,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/getChatMember"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        ChatMember.from_json(json_response["result"].to_json)
+        result_data = json_response["result"]
+        ChatMember.from_json(result_data.to_json)
       end
 
       # setChatStickerSet
@@ -2993,32 +2704,33 @@ module Telegram
       # Returns: Bool
       # See: https://core.telegram.org/bots/api#setchatstickerset
       def set_chat_sticker_set(chat_id : Int32 | String, sticker_set_name : String) : Bool
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["chat_id"] = JSON::Any.new(chat_id) if chat_id
-        params["sticker_set_name"] = JSON::Any.new(sticker_set_name) if sticker_set_name
+        # Collect parameters for file detection
+        params_hash = {
+          "chat_id" => chat_id,
+          "sticker_set_name" => sticker_set_name,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          chat_id: chat_id,
+          sticker_set_name: sticker_set_name,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/setChatStickerSet"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"].as_bool
+        result_data = json_response["result"]
+        Bool.from_json(result_data.to_json)
       end
 
       # deleteChatStickerSet
@@ -3027,31 +2739,31 @@ module Telegram
       # Returns: Bool
       # See: https://core.telegram.org/bots/api#deletechatstickerset
       def delete_chat_sticker_set(chat_id : Int32 | String) : Bool
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["chat_id"] = JSON::Any.new(chat_id) if chat_id
+        # Collect parameters for file detection
+        params_hash = {
+          "chat_id" => chat_id,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          chat_id: chat_id,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/deleteChatStickerSet"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"].as_bool
+        result_data = json_response["result"]
+        Bool.from_json(result_data.to_json)
       end
 
       # getForumTopicIconStickers
@@ -3060,30 +2772,24 @@ module Telegram
       # Returns: Array(Sticker)
       # See: https://core.telegram.org/bots/api#getforumtopiciconstickers
       def get_forum_topic_icon_stickers() : Array(Sticker)
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(        )
 
-        # Make HTTP request
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/getForumTopicIconStickers"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"].as_a.map { |item| Sticker.from_json(item.to_json) }
+        result_data = json_response["result"]
+        Array(Sticker).from_json(result_data.to_json)
       end
 
       # createForumTopic
@@ -3092,34 +2798,37 @@ module Telegram
       # Returns: ForumTopic
       # See: https://core.telegram.org/bots/api#createforumtopic
       def create_forum_topic(chat_id : Int32 | String, name : String, icon_color : Int32? = nil, icon_custom_emoji_id : String? = nil) : ForumTopic
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["chat_id"] = JSON::Any.new(chat_id) if chat_id
-        params["name"] = JSON::Any.new(name) if name
-        params["icon_color"] = JSON::Any.new(icon_color) if icon_color
-        params["icon_custom_emoji_id"] = JSON::Any.new(icon_custom_emoji_id) if icon_custom_emoji_id
+        # Collect parameters for file detection
+        params_hash = {
+          "chat_id" => chat_id,
+          "name" => name,
+          "icon_color" => icon_color,
+          "icon_custom_emoji_id" => icon_custom_emoji_id,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          chat_id: chat_id,
+          name: name,
+          icon_color: icon_color,
+          icon_custom_emoji_id: icon_custom_emoji_id,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/createForumTopic"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        ForumTopic.from_json(json_response["result"].to_json)
+        result_data = json_response["result"]
+        ForumTopic.from_json(result_data.to_json)
       end
 
       # editForumTopic
@@ -3128,34 +2837,37 @@ module Telegram
       # Returns: Bool
       # See: https://core.telegram.org/bots/api#editforumtopic
       def edit_forum_topic(chat_id : Int32 | String, message_thread_id : Int32, name : String? = nil, icon_custom_emoji_id : String? = nil) : Bool
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["chat_id"] = JSON::Any.new(chat_id) if chat_id
-        params["message_thread_id"] = JSON::Any.new(message_thread_id) if message_thread_id
-        params["name"] = JSON::Any.new(name) if name
-        params["icon_custom_emoji_id"] = JSON::Any.new(icon_custom_emoji_id) if icon_custom_emoji_id
+        # Collect parameters for file detection
+        params_hash = {
+          "chat_id" => chat_id,
+          "message_thread_id" => message_thread_id,
+          "name" => name,
+          "icon_custom_emoji_id" => icon_custom_emoji_id,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          chat_id: chat_id,
+          message_thread_id: message_thread_id,
+          name: name,
+          icon_custom_emoji_id: icon_custom_emoji_id,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/editForumTopic"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"].as_bool
+        result_data = json_response["result"]
+        Bool.from_json(result_data.to_json)
       end
 
       # closeForumTopic
@@ -3164,32 +2876,33 @@ module Telegram
       # Returns: Bool
       # See: https://core.telegram.org/bots/api#closeforumtopic
       def close_forum_topic(chat_id : Int32 | String, message_thread_id : Int32) : Bool
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["chat_id"] = JSON::Any.new(chat_id) if chat_id
-        params["message_thread_id"] = JSON::Any.new(message_thread_id) if message_thread_id
+        # Collect parameters for file detection
+        params_hash = {
+          "chat_id" => chat_id,
+          "message_thread_id" => message_thread_id,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          chat_id: chat_id,
+          message_thread_id: message_thread_id,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/closeForumTopic"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"].as_bool
+        result_data = json_response["result"]
+        Bool.from_json(result_data.to_json)
       end
 
       # reopenForumTopic
@@ -3198,32 +2911,33 @@ module Telegram
       # Returns: Bool
       # See: https://core.telegram.org/bots/api#reopenforumtopic
       def reopen_forum_topic(chat_id : Int32 | String, message_thread_id : Int32) : Bool
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["chat_id"] = JSON::Any.new(chat_id) if chat_id
-        params["message_thread_id"] = JSON::Any.new(message_thread_id) if message_thread_id
+        # Collect parameters for file detection
+        params_hash = {
+          "chat_id" => chat_id,
+          "message_thread_id" => message_thread_id,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          chat_id: chat_id,
+          message_thread_id: message_thread_id,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/reopenForumTopic"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"].as_bool
+        result_data = json_response["result"]
+        Bool.from_json(result_data.to_json)
       end
 
       # deleteForumTopic
@@ -3232,32 +2946,33 @@ module Telegram
       # Returns: Bool
       # See: https://core.telegram.org/bots/api#deleteforumtopic
       def delete_forum_topic(chat_id : Int32 | String, message_thread_id : Int32) : Bool
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["chat_id"] = JSON::Any.new(chat_id) if chat_id
-        params["message_thread_id"] = JSON::Any.new(message_thread_id) if message_thread_id
+        # Collect parameters for file detection
+        params_hash = {
+          "chat_id" => chat_id,
+          "message_thread_id" => message_thread_id,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          chat_id: chat_id,
+          message_thread_id: message_thread_id,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/deleteForumTopic"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"].as_bool
+        result_data = json_response["result"]
+        Bool.from_json(result_data.to_json)
       end
 
       # unpinAllForumTopicMessages
@@ -3266,32 +2981,33 @@ module Telegram
       # Returns: Bool
       # See: https://core.telegram.org/bots/api#unpinallforumtopicmessages
       def unpin_all_forum_topic_messages(chat_id : Int32 | String, message_thread_id : Int32) : Bool
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["chat_id"] = JSON::Any.new(chat_id) if chat_id
-        params["message_thread_id"] = JSON::Any.new(message_thread_id) if message_thread_id
+        # Collect parameters for file detection
+        params_hash = {
+          "chat_id" => chat_id,
+          "message_thread_id" => message_thread_id,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          chat_id: chat_id,
+          message_thread_id: message_thread_id,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/unpinAllForumTopicMessages"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"].as_bool
+        result_data = json_response["result"]
+        Bool.from_json(result_data.to_json)
       end
 
       # editGeneralForumTopic
@@ -3300,32 +3016,33 @@ module Telegram
       # Returns: Bool
       # See: https://core.telegram.org/bots/api#editgeneralforumtopic
       def edit_general_forum_topic(chat_id : Int32 | String, name : String) : Bool
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["chat_id"] = JSON::Any.new(chat_id) if chat_id
-        params["name"] = JSON::Any.new(name) if name
+        # Collect parameters for file detection
+        params_hash = {
+          "chat_id" => chat_id,
+          "name" => name,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          chat_id: chat_id,
+          name: name,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/editGeneralForumTopic"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"].as_bool
+        result_data = json_response["result"]
+        Bool.from_json(result_data.to_json)
       end
 
       # closeGeneralForumTopic
@@ -3334,31 +3051,31 @@ module Telegram
       # Returns: Bool
       # See: https://core.telegram.org/bots/api#closegeneralforumtopic
       def close_general_forum_topic(chat_id : Int32 | String) : Bool
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["chat_id"] = JSON::Any.new(chat_id) if chat_id
+        # Collect parameters for file detection
+        params_hash = {
+          "chat_id" => chat_id,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          chat_id: chat_id,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/closeGeneralForumTopic"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"].as_bool
+        result_data = json_response["result"]
+        Bool.from_json(result_data.to_json)
       end
 
       # reopenGeneralForumTopic
@@ -3367,31 +3084,31 @@ module Telegram
       # Returns: Bool
       # See: https://core.telegram.org/bots/api#reopengeneralforumtopic
       def reopen_general_forum_topic(chat_id : Int32 | String) : Bool
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["chat_id"] = JSON::Any.new(chat_id) if chat_id
+        # Collect parameters for file detection
+        params_hash = {
+          "chat_id" => chat_id,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          chat_id: chat_id,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/reopenGeneralForumTopic"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"].as_bool
+        result_data = json_response["result"]
+        Bool.from_json(result_data.to_json)
       end
 
       # hideGeneralForumTopic
@@ -3400,31 +3117,31 @@ module Telegram
       # Returns: Bool
       # See: https://core.telegram.org/bots/api#hidegeneralforumtopic
       def hide_general_forum_topic(chat_id : Int32 | String) : Bool
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["chat_id"] = JSON::Any.new(chat_id) if chat_id
+        # Collect parameters for file detection
+        params_hash = {
+          "chat_id" => chat_id,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          chat_id: chat_id,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/hideGeneralForumTopic"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"].as_bool
+        result_data = json_response["result"]
+        Bool.from_json(result_data.to_json)
       end
 
       # unhideGeneralForumTopic
@@ -3433,31 +3150,31 @@ module Telegram
       # Returns: Bool
       # See: https://core.telegram.org/bots/api#unhidegeneralforumtopic
       def unhide_general_forum_topic(chat_id : Int32 | String) : Bool
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["chat_id"] = JSON::Any.new(chat_id) if chat_id
+        # Collect parameters for file detection
+        params_hash = {
+          "chat_id" => chat_id,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          chat_id: chat_id,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/unhideGeneralForumTopic"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"].as_bool
+        result_data = json_response["result"]
+        Bool.from_json(result_data.to_json)
       end
 
       # unpinAllGeneralForumTopicMessages
@@ -3466,31 +3183,31 @@ module Telegram
       # Returns: Bool
       # See: https://core.telegram.org/bots/api#unpinallgeneralforumtopicmessages
       def unpin_all_general_forum_topic_messages(chat_id : Int32 | String) : Bool
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["chat_id"] = JSON::Any.new(chat_id) if chat_id
+        # Collect parameters for file detection
+        params_hash = {
+          "chat_id" => chat_id,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          chat_id: chat_id,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/unpinAllGeneralForumTopicMessages"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"].as_bool
+        result_data = json_response["result"]
+        Bool.from_json(result_data.to_json)
       end
 
       # answerCallbackQuery
@@ -3499,35 +3216,39 @@ module Telegram
       # Returns: Bool
       # See: https://core.telegram.org/bots/api#answercallbackquery
       def answer_callback_query(callback_query_id : String, text : String? = nil, show_alert : Bool? = nil, url : String? = nil, cache_time : Int32? = nil) : Bool
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["callback_query_id"] = JSON::Any.new(callback_query_id) if callback_query_id
-        params["text"] = JSON::Any.new(text) if text
-        params["show_alert"] = JSON::Any.new(show_alert) if show_alert
-        params["url"] = JSON::Any.new(url) if url
-        params["cache_time"] = JSON::Any.new(cache_time) if cache_time
+        # Collect parameters for file detection
+        params_hash = {
+          "callback_query_id" => callback_query_id,
+          "text" => text,
+          "show_alert" => show_alert,
+          "url" => url,
+          "cache_time" => cache_time,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          callback_query_id: callback_query_id,
+          text: text,
+          show_alert: show_alert,
+          url: url,
+          cache_time: cache_time,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/answerCallbackQuery"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"].as_bool
+        result_data = json_response["result"]
+        Bool.from_json(result_data.to_json)
       end
 
       # getUserChatBoosts
@@ -3536,32 +3257,33 @@ module Telegram
       # Returns: UserChatBoosts
       # See: https://core.telegram.org/bots/api#getuserchatboosts
       def get_user_chat_boosts(chat_id : Int32 | String, user_id : Int32) : UserChatBoosts
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["chat_id"] = JSON::Any.new(chat_id) if chat_id
-        params["user_id"] = JSON::Any.new(user_id) if user_id
+        # Collect parameters for file detection
+        params_hash = {
+          "chat_id" => chat_id,
+          "user_id" => user_id,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          chat_id: chat_id,
+          user_id: user_id,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/getUserChatBoosts"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        UserChatBoosts.from_json(json_response["result"].to_json)
+        result_data = json_response["result"]
+        UserChatBoosts.from_json(result_data.to_json)
       end
 
       # getBusinessConnection
@@ -3570,31 +3292,31 @@ module Telegram
       # Returns: BusinessConnection
       # See: https://core.telegram.org/bots/api#getbusinessconnection
       def get_business_connection(business_connection_id : String) : BusinessConnection
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["business_connection_id"] = JSON::Any.new(business_connection_id) if business_connection_id
+        # Collect parameters for file detection
+        params_hash = {
+          "business_connection_id" => business_connection_id,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          business_connection_id: business_connection_id,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/getBusinessConnection"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        BusinessConnection.from_json(json_response["result"].to_json)
+        result_data = json_response["result"]
+        BusinessConnection.from_json(result_data.to_json)
       end
 
       # setMyCommands
@@ -3603,33 +3325,35 @@ module Telegram
       # Returns: Bool
       # See: https://core.telegram.org/bots/api#setmycommands
       def set_my_commands(commands : Array(BotCommand), scope : BotCommandScope? = nil, language_code : String? = nil) : Bool
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["commands"] = JSON::Any.new(commands) if commands
-        params["scope"] = JSON::Any.new(scope) if scope
-        params["language_code"] = JSON::Any.new(language_code) if language_code
+        # Collect parameters for file detection
+        params_hash = {
+          "commands" => commands,
+          "scope" => scope,
+          "language_code" => language_code,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          commands: commands,
+          scope: scope,
+          language_code: language_code,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/setMyCommands"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"].as_bool
+        result_data = json_response["result"]
+        Bool.from_json(result_data.to_json)
       end
 
       # deleteMyCommands
@@ -3638,32 +3362,33 @@ module Telegram
       # Returns: Bool
       # See: https://core.telegram.org/bots/api#deletemycommands
       def delete_my_commands(scope : BotCommandScope? = nil, language_code : String? = nil) : Bool
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["scope"] = JSON::Any.new(scope) if scope
-        params["language_code"] = JSON::Any.new(language_code) if language_code
+        # Collect parameters for file detection
+        params_hash = {
+          "scope" => scope,
+          "language_code" => language_code,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          scope: scope,
+          language_code: language_code,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/deleteMyCommands"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"].as_bool
+        result_data = json_response["result"]
+        Bool.from_json(result_data.to_json)
       end
 
       # getMyCommands
@@ -3672,32 +3397,33 @@ module Telegram
       # Returns: Array(BotCommand)
       # See: https://core.telegram.org/bots/api#getmycommands
       def get_my_commands(scope : BotCommandScope? = nil, language_code : String? = nil) : Array(BotCommand)
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["scope"] = JSON::Any.new(scope) if scope
-        params["language_code"] = JSON::Any.new(language_code) if language_code
+        # Collect parameters for file detection
+        params_hash = {
+          "scope" => scope,
+          "language_code" => language_code,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          scope: scope,
+          language_code: language_code,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/getMyCommands"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"].as_a.map { |item| BotCommand.from_json(item.to_json) }
+        result_data = json_response["result"]
+        Array(BotCommand).from_json(result_data.to_json)
       end
 
       # setMyName
@@ -3706,32 +3432,33 @@ module Telegram
       # Returns: Bool
       # See: https://core.telegram.org/bots/api#setmyname
       def set_my_name(name : String? = nil, language_code : String? = nil) : Bool
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["name"] = JSON::Any.new(name) if name
-        params["language_code"] = JSON::Any.new(language_code) if language_code
+        # Collect parameters for file detection
+        params_hash = {
+          "name" => name,
+          "language_code" => language_code,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          name: name,
+          language_code: language_code,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/setMyName"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"].as_bool
+        result_data = json_response["result"]
+        Bool.from_json(result_data.to_json)
       end
 
       # getMyName
@@ -3740,31 +3467,31 @@ module Telegram
       # Returns: BotName
       # See: https://core.telegram.org/bots/api#getmyname
       def get_my_name(language_code : String? = nil) : BotName
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["language_code"] = JSON::Any.new(language_code) if language_code
+        # Collect parameters for file detection
+        params_hash = {
+          "language_code" => language_code,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          language_code: language_code,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/getMyName"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        BotName.from_json(json_response["result"].to_json)
+        result_data = json_response["result"]
+        BotName.from_json(result_data.to_json)
       end
 
       # setMyDescription
@@ -3773,32 +3500,33 @@ module Telegram
       # Returns: Bool
       # See: https://core.telegram.org/bots/api#setmydescription
       def set_my_description(description : String? = nil, language_code : String? = nil) : Bool
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["description"] = JSON::Any.new(description) if description
-        params["language_code"] = JSON::Any.new(language_code) if language_code
+        # Collect parameters for file detection
+        params_hash = {
+          "description" => description,
+          "language_code" => language_code,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          description: description,
+          language_code: language_code,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/setMyDescription"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"].as_bool
+        result_data = json_response["result"]
+        Bool.from_json(result_data.to_json)
       end
 
       # getMyDescription
@@ -3807,31 +3535,31 @@ module Telegram
       # Returns: BotDescription
       # See: https://core.telegram.org/bots/api#getmydescription
       def get_my_description(language_code : String? = nil) : BotDescription
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["language_code"] = JSON::Any.new(language_code) if language_code
+        # Collect parameters for file detection
+        params_hash = {
+          "language_code" => language_code,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          language_code: language_code,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/getMyDescription"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        BotDescription.from_json(json_response["result"].to_json)
+        result_data = json_response["result"]
+        BotDescription.from_json(result_data.to_json)
       end
 
       # setMyShortDescription
@@ -3840,32 +3568,33 @@ module Telegram
       # Returns: Bool
       # See: https://core.telegram.org/bots/api#setmyshortdescription
       def set_my_short_description(short_description : String? = nil, language_code : String? = nil) : Bool
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["short_description"] = JSON::Any.new(short_description) if short_description
-        params["language_code"] = JSON::Any.new(language_code) if language_code
+        # Collect parameters for file detection
+        params_hash = {
+          "short_description" => short_description,
+          "language_code" => language_code,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          short_description: short_description,
+          language_code: language_code,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/setMyShortDescription"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"].as_bool
+        result_data = json_response["result"]
+        Bool.from_json(result_data.to_json)
       end
 
       # getMyShortDescription
@@ -3874,31 +3603,31 @@ module Telegram
       # Returns: BotShortDescription
       # See: https://core.telegram.org/bots/api#getmyshortdescription
       def get_my_short_description(language_code : String? = nil) : BotShortDescription
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["language_code"] = JSON::Any.new(language_code) if language_code
+        # Collect parameters for file detection
+        params_hash = {
+          "language_code" => language_code,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          language_code: language_code,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/getMyShortDescription"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        BotShortDescription.from_json(json_response["result"].to_json)
+        result_data = json_response["result"]
+        BotShortDescription.from_json(result_data.to_json)
       end
 
       # setChatMenuButton
@@ -3907,32 +3636,33 @@ module Telegram
       # Returns: Bool
       # See: https://core.telegram.org/bots/api#setchatmenubutton
       def set_chat_menu_button(chat_id : Int32? = nil, menu_button : MenuButton? = nil) : Bool
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["chat_id"] = JSON::Any.new(chat_id) if chat_id
-        params["menu_button"] = JSON::Any.new(menu_button) if menu_button
+        # Collect parameters for file detection
+        params_hash = {
+          "chat_id" => chat_id,
+          "menu_button" => menu_button,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          chat_id: chat_id,
+          menu_button: menu_button,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/setChatMenuButton"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"].as_bool
+        result_data = json_response["result"]
+        Bool.from_json(result_data.to_json)
       end
 
       # getChatMenuButton
@@ -3941,31 +3671,31 @@ module Telegram
       # Returns: MenuButton
       # See: https://core.telegram.org/bots/api#getchatmenubutton
       def get_chat_menu_button(chat_id : Int32? = nil) : MenuButton
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["chat_id"] = JSON::Any.new(chat_id) if chat_id
+        # Collect parameters for file detection
+        params_hash = {
+          "chat_id" => chat_id,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          chat_id: chat_id,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/getChatMenuButton"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        MenuButton.from_json(json_response["result"].to_json)
+        result_data = json_response["result"]
+        MenuButton.from_json(result_data.to_json)
       end
 
       # setMyDefaultAdministratorRights
@@ -3974,32 +3704,33 @@ module Telegram
       # Returns: Bool
       # See: https://core.telegram.org/bots/api#setmydefaultadministratorrights
       def set_my_default_administrator_rights(rights : ChatAdministratorRights? = nil, for_channels : Bool? = nil) : Bool
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["rights"] = JSON::Any.new(rights) if rights
-        params["for_channels"] = JSON::Any.new(for_channels) if for_channels
+        # Collect parameters for file detection
+        params_hash = {
+          "rights" => rights,
+          "for_channels" => for_channels,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          rights: rights,
+          for_channels: for_channels,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/setMyDefaultAdministratorRights"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"].as_bool
+        result_data = json_response["result"]
+        Bool.from_json(result_data.to_json)
       end
 
       # getMyDefaultAdministratorRights
@@ -4008,31 +3739,31 @@ module Telegram
       # Returns: ChatAdministratorRights
       # See: https://core.telegram.org/bots/api#getmydefaultadministratorrights
       def get_my_default_administrator_rights(for_channels : Bool? = nil) : ChatAdministratorRights
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["for_channels"] = JSON::Any.new(for_channels) if for_channels
+        # Collect parameters for file detection
+        params_hash = {
+          "for_channels" => for_channels,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          for_channels: for_channels,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/getMyDefaultAdministratorRights"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        ChatAdministratorRights.from_json(json_response["result"].to_json)
+        result_data = json_response["result"]
+        ChatAdministratorRights.from_json(result_data.to_json)
       end
 
       # getAvailableGifts
@@ -4041,30 +3772,24 @@ module Telegram
       # Returns: Gifts
       # See: https://core.telegram.org/bots/api#getavailablegifts
       def get_available_gifts() : Gifts
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(        )
 
-        # Make HTTP request
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/getAvailableGifts"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        Gifts.from_json(json_response["result"].to_json)
+        result_data = json_response["result"]
+        Gifts.from_json(result_data.to_json)
       end
 
       # sendGift
@@ -4073,37 +3798,43 @@ module Telegram
       # Returns: Bool
       # See: https://core.telegram.org/bots/api#sendgift
       def send_gift(gift_id : String, user_id : Int32? = nil, chat_id : Int32 | String? = nil, pay_for_upgrade : Bool? = nil, text : String? = nil, text_parse_mode : String? = nil, text_entities : Array(MessageEntity)? = nil) : Bool
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["user_id"] = JSON::Any.new(user_id) if user_id
-        params["chat_id"] = JSON::Any.new(chat_id) if chat_id
-        params["gift_id"] = JSON::Any.new(gift_id) if gift_id
-        params["pay_for_upgrade"] = JSON::Any.new(pay_for_upgrade) if pay_for_upgrade
-        params["text"] = JSON::Any.new(text) if text
-        params["text_parse_mode"] = JSON::Any.new(text_parse_mode) if text_parse_mode
-        params["text_entities"] = JSON::Any.new(text_entities) if text_entities
+        # Collect parameters for file detection
+        params_hash = {
+          "user_id" => user_id,
+          "chat_id" => chat_id,
+          "gift_id" => gift_id,
+          "pay_for_upgrade" => pay_for_upgrade,
+          "text" => text,
+          "text_parse_mode" => text_parse_mode,
+          "text_entities" => text_entities,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          user_id: user_id,
+          chat_id: chat_id,
+          gift_id: gift_id,
+          pay_for_upgrade: pay_for_upgrade,
+          text: text,
+          text_parse_mode: text_parse_mode,
+          text_entities: text_entities,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/sendGift"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"].as_bool
+        result_data = json_response["result"]
+        Bool.from_json(result_data.to_json)
       end
 
       # giftPremiumSubscription
@@ -4112,36 +3843,41 @@ module Telegram
       # Returns: Bool
       # See: https://core.telegram.org/bots/api#giftpremiumsubscription
       def gift_premium_subscription(user_id : Int32, month_count : Int32, star_count : Int32, text : String? = nil, text_parse_mode : String? = nil, text_entities : Array(MessageEntity)? = nil) : Bool
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["user_id"] = JSON::Any.new(user_id) if user_id
-        params["month_count"] = JSON::Any.new(month_count) if month_count
-        params["star_count"] = JSON::Any.new(star_count) if star_count
-        params["text"] = JSON::Any.new(text) if text
-        params["text_parse_mode"] = JSON::Any.new(text_parse_mode) if text_parse_mode
-        params["text_entities"] = JSON::Any.new(text_entities) if text_entities
+        # Collect parameters for file detection
+        params_hash = {
+          "user_id" => user_id,
+          "month_count" => month_count,
+          "star_count" => star_count,
+          "text" => text,
+          "text_parse_mode" => text_parse_mode,
+          "text_entities" => text_entities,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          user_id: user_id,
+          month_count: month_count,
+          star_count: star_count,
+          text: text,
+          text_parse_mode: text_parse_mode,
+          text_entities: text_entities,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/giftPremiumSubscription"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"].as_bool
+        result_data = json_response["result"]
+        Bool.from_json(result_data.to_json)
       end
 
       # verifyUser
@@ -4150,32 +3886,33 @@ module Telegram
       # Returns: Bool
       # See: https://core.telegram.org/bots/api#verifyuser
       def verify_user(user_id : Int32, custom_description : String? = nil) : Bool
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["user_id"] = JSON::Any.new(user_id) if user_id
-        params["custom_description"] = JSON::Any.new(custom_description) if custom_description
+        # Collect parameters for file detection
+        params_hash = {
+          "user_id" => user_id,
+          "custom_description" => custom_description,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          user_id: user_id,
+          custom_description: custom_description,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/verifyUser"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"].as_bool
+        result_data = json_response["result"]
+        Bool.from_json(result_data.to_json)
       end
 
       # verifyChat
@@ -4184,32 +3921,33 @@ module Telegram
       # Returns: Bool
       # See: https://core.telegram.org/bots/api#verifychat
       def verify_chat(chat_id : Int32 | String, custom_description : String? = nil) : Bool
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["chat_id"] = JSON::Any.new(chat_id) if chat_id
-        params["custom_description"] = JSON::Any.new(custom_description) if custom_description
+        # Collect parameters for file detection
+        params_hash = {
+          "chat_id" => chat_id,
+          "custom_description" => custom_description,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          chat_id: chat_id,
+          custom_description: custom_description,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/verifyChat"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"].as_bool
+        result_data = json_response["result"]
+        Bool.from_json(result_data.to_json)
       end
 
       # removeUserVerification
@@ -4218,31 +3956,31 @@ module Telegram
       # Returns: Bool
       # See: https://core.telegram.org/bots/api#removeuserverification
       def remove_user_verification(user_id : Int32) : Bool
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["user_id"] = JSON::Any.new(user_id) if user_id
+        # Collect parameters for file detection
+        params_hash = {
+          "user_id" => user_id,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          user_id: user_id,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/removeUserVerification"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"].as_bool
+        result_data = json_response["result"]
+        Bool.from_json(result_data.to_json)
       end
 
       # removeChatVerification
@@ -4251,31 +3989,31 @@ module Telegram
       # Returns: Bool
       # See: https://core.telegram.org/bots/api#removechatverification
       def remove_chat_verification(chat_id : Int32 | String) : Bool
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["chat_id"] = JSON::Any.new(chat_id) if chat_id
+        # Collect parameters for file detection
+        params_hash = {
+          "chat_id" => chat_id,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          chat_id: chat_id,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/removeChatVerification"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"].as_bool
+        result_data = json_response["result"]
+        Bool.from_json(result_data.to_json)
       end
 
       # readBusinessMessage
@@ -4284,33 +4022,35 @@ module Telegram
       # Returns: Bool
       # See: https://core.telegram.org/bots/api#readbusinessmessage
       def read_business_message(business_connection_id : String, chat_id : Int32, message_id : Int32) : Bool
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["business_connection_id"] = JSON::Any.new(business_connection_id) if business_connection_id
-        params["chat_id"] = JSON::Any.new(chat_id) if chat_id
-        params["message_id"] = JSON::Any.new(message_id) if message_id
+        # Collect parameters for file detection
+        params_hash = {
+          "business_connection_id" => business_connection_id,
+          "chat_id" => chat_id,
+          "message_id" => message_id,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          business_connection_id: business_connection_id,
+          chat_id: chat_id,
+          message_id: message_id,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/readBusinessMessage"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"].as_bool
+        result_data = json_response["result"]
+        Bool.from_json(result_data.to_json)
       end
 
       # deleteBusinessMessages
@@ -4319,32 +4059,33 @@ module Telegram
       # Returns: Bool
       # See: https://core.telegram.org/bots/api#deletebusinessmessages
       def delete_business_messages(business_connection_id : String, message_ids : Array(Int32)) : Bool
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["business_connection_id"] = JSON::Any.new(business_connection_id) if business_connection_id
-        params["message_ids"] = JSON::Any.new(message_ids) if message_ids
+        # Collect parameters for file detection
+        params_hash = {
+          "business_connection_id" => business_connection_id,
+          "message_ids" => message_ids,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          business_connection_id: business_connection_id,
+          message_ids: message_ids,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/deleteBusinessMessages"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"].as_bool
+        result_data = json_response["result"]
+        Bool.from_json(result_data.to_json)
       end
 
       # setBusinessAccountName
@@ -4353,33 +4094,35 @@ module Telegram
       # Returns: Bool
       # See: https://core.telegram.org/bots/api#setbusinessaccountname
       def set_business_account_name(business_connection_id : String, first_name : String, last_name : String? = nil) : Bool
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["business_connection_id"] = JSON::Any.new(business_connection_id) if business_connection_id
-        params["first_name"] = JSON::Any.new(first_name) if first_name
-        params["last_name"] = JSON::Any.new(last_name) if last_name
+        # Collect parameters for file detection
+        params_hash = {
+          "business_connection_id" => business_connection_id,
+          "first_name" => first_name,
+          "last_name" => last_name,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          business_connection_id: business_connection_id,
+          first_name: first_name,
+          last_name: last_name,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/setBusinessAccountName"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"].as_bool
+        result_data = json_response["result"]
+        Bool.from_json(result_data.to_json)
       end
 
       # setBusinessAccountUsername
@@ -4388,32 +4131,33 @@ module Telegram
       # Returns: Bool
       # See: https://core.telegram.org/bots/api#setbusinessaccountusername
       def set_business_account_username(business_connection_id : String, username : String? = nil) : Bool
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["business_connection_id"] = JSON::Any.new(business_connection_id) if business_connection_id
-        params["username"] = JSON::Any.new(username) if username
+        # Collect parameters for file detection
+        params_hash = {
+          "business_connection_id" => business_connection_id,
+          "username" => username,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          business_connection_id: business_connection_id,
+          username: username,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/setBusinessAccountUsername"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"].as_bool
+        result_data = json_response["result"]
+        Bool.from_json(result_data.to_json)
       end
 
       # setBusinessAccountBio
@@ -4422,32 +4166,33 @@ module Telegram
       # Returns: Bool
       # See: https://core.telegram.org/bots/api#setbusinessaccountbio
       def set_business_account_bio(business_connection_id : String, bio : String? = nil) : Bool
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["business_connection_id"] = JSON::Any.new(business_connection_id) if business_connection_id
-        params["bio"] = JSON::Any.new(bio) if bio
+        # Collect parameters for file detection
+        params_hash = {
+          "business_connection_id" => business_connection_id,
+          "bio" => bio,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          business_connection_id: business_connection_id,
+          bio: bio,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/setBusinessAccountBio"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"].as_bool
+        result_data = json_response["result"]
+        Bool.from_json(result_data.to_json)
       end
 
       # setBusinessAccountProfilePhoto
@@ -4456,33 +4201,35 @@ module Telegram
       # Returns: Bool
       # See: https://core.telegram.org/bots/api#setbusinessaccountprofilephoto
       def set_business_account_profile_photo(business_connection_id : String, photo : InputProfilePhoto, is_public : Bool? = nil) : Bool
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["business_connection_id"] = JSON::Any.new(business_connection_id) if business_connection_id
-        params["photo"] = JSON::Any.new(photo) if photo
-        params["is_public"] = JSON::Any.new(is_public) if is_public
+        # Collect parameters for file detection
+        params_hash = {
+          "business_connection_id" => business_connection_id,
+          "photo" => photo,
+          "is_public" => is_public,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          business_connection_id: business_connection_id,
+          photo: photo,
+          is_public: is_public,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/setBusinessAccountProfilePhoto"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"].as_bool
+        result_data = json_response["result"]
+        Bool.from_json(result_data.to_json)
       end
 
       # removeBusinessAccountProfilePhoto
@@ -4491,32 +4238,33 @@ module Telegram
       # Returns: Bool
       # See: https://core.telegram.org/bots/api#removebusinessaccountprofilephoto
       def remove_business_account_profile_photo(business_connection_id : String, is_public : Bool? = nil) : Bool
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["business_connection_id"] = JSON::Any.new(business_connection_id) if business_connection_id
-        params["is_public"] = JSON::Any.new(is_public) if is_public
+        # Collect parameters for file detection
+        params_hash = {
+          "business_connection_id" => business_connection_id,
+          "is_public" => is_public,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          business_connection_id: business_connection_id,
+          is_public: is_public,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/removeBusinessAccountProfilePhoto"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"].as_bool
+        result_data = json_response["result"]
+        Bool.from_json(result_data.to_json)
       end
 
       # setBusinessAccountGiftSettings
@@ -4525,33 +4273,35 @@ module Telegram
       # Returns: Bool
       # See: https://core.telegram.org/bots/api#setbusinessaccountgiftsettings
       def set_business_account_gift_settings(business_connection_id : String, show_gift_button : Bool, accepted_gift_types : AcceptedGiftTypes) : Bool
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["business_connection_id"] = JSON::Any.new(business_connection_id) if business_connection_id
-        params["show_gift_button"] = JSON::Any.new(show_gift_button) if show_gift_button
-        params["accepted_gift_types"] = JSON::Any.new(accepted_gift_types) if accepted_gift_types
+        # Collect parameters for file detection
+        params_hash = {
+          "business_connection_id" => business_connection_id,
+          "show_gift_button" => show_gift_button,
+          "accepted_gift_types" => accepted_gift_types,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          business_connection_id: business_connection_id,
+          show_gift_button: show_gift_button,
+          accepted_gift_types: accepted_gift_types,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/setBusinessAccountGiftSettings"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"].as_bool
+        result_data = json_response["result"]
+        Bool.from_json(result_data.to_json)
       end
 
       # getBusinessAccountStarBalance
@@ -4560,31 +4310,31 @@ module Telegram
       # Returns: StarAmount
       # See: https://core.telegram.org/bots/api#getbusinessaccountstarbalance
       def get_business_account_star_balance(business_connection_id : String) : StarAmount
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["business_connection_id"] = JSON::Any.new(business_connection_id) if business_connection_id
+        # Collect parameters for file detection
+        params_hash = {
+          "business_connection_id" => business_connection_id,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          business_connection_id: business_connection_id,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/getBusinessAccountStarBalance"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        StarAmount.from_json(json_response["result"].to_json)
+        result_data = json_response["result"]
+        StarAmount.from_json(result_data.to_json)
       end
 
       # transferBusinessAccountStars
@@ -4593,32 +4343,33 @@ module Telegram
       # Returns: Bool
       # See: https://core.telegram.org/bots/api#transferbusinessaccountstars
       def transfer_business_account_stars(business_connection_id : String, star_count : Int32) : Bool
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["business_connection_id"] = JSON::Any.new(business_connection_id) if business_connection_id
-        params["star_count"] = JSON::Any.new(star_count) if star_count
+        # Collect parameters for file detection
+        params_hash = {
+          "business_connection_id" => business_connection_id,
+          "star_count" => star_count,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          business_connection_id: business_connection_id,
+          star_count: star_count,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/transferBusinessAccountStars"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"].as_bool
+        result_data = json_response["result"]
+        Bool.from_json(result_data.to_json)
       end
 
       # getBusinessAccountGifts
@@ -4627,39 +4378,47 @@ module Telegram
       # Returns: OwnedGifts
       # See: https://core.telegram.org/bots/api#getbusinessaccountgifts
       def get_business_account_gifts(business_connection_id : String, exclude_unsaved : Bool? = nil, exclude_saved : Bool? = nil, exclude_unlimited : Bool? = nil, exclude_limited : Bool? = nil, exclude_unique : Bool? = nil, sort_by_price : Bool? = nil, offset : String? = nil, limit : Int32? = nil) : OwnedGifts
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["business_connection_id"] = JSON::Any.new(business_connection_id) if business_connection_id
-        params["exclude_unsaved"] = JSON::Any.new(exclude_unsaved) if exclude_unsaved
-        params["exclude_saved"] = JSON::Any.new(exclude_saved) if exclude_saved
-        params["exclude_unlimited"] = JSON::Any.new(exclude_unlimited) if exclude_unlimited
-        params["exclude_limited"] = JSON::Any.new(exclude_limited) if exclude_limited
-        params["exclude_unique"] = JSON::Any.new(exclude_unique) if exclude_unique
-        params["sort_by_price"] = JSON::Any.new(sort_by_price) if sort_by_price
-        params["offset"] = JSON::Any.new(offset) if offset
-        params["limit"] = JSON::Any.new(limit) if limit
+        # Collect parameters for file detection
+        params_hash = {
+          "business_connection_id" => business_connection_id,
+          "exclude_unsaved" => exclude_unsaved,
+          "exclude_saved" => exclude_saved,
+          "exclude_unlimited" => exclude_unlimited,
+          "exclude_limited" => exclude_limited,
+          "exclude_unique" => exclude_unique,
+          "sort_by_price" => sort_by_price,
+          "offset" => offset,
+          "limit" => limit,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          business_connection_id: business_connection_id,
+          exclude_unsaved: exclude_unsaved,
+          exclude_saved: exclude_saved,
+          exclude_unlimited: exclude_unlimited,
+          exclude_limited: exclude_limited,
+          exclude_unique: exclude_unique,
+          sort_by_price: sort_by_price,
+          offset: offset,
+          limit: limit,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/getBusinessAccountGifts"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        OwnedGifts.from_json(json_response["result"].to_json)
+        result_data = json_response["result"]
+        OwnedGifts.from_json(result_data.to_json)
       end
 
       # convertGiftToStars
@@ -4668,32 +4427,33 @@ module Telegram
       # Returns: Bool
       # See: https://core.telegram.org/bots/api#convertgifttostars
       def convert_gift_to_stars(business_connection_id : String, owned_gift_id : String) : Bool
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["business_connection_id"] = JSON::Any.new(business_connection_id) if business_connection_id
-        params["owned_gift_id"] = JSON::Any.new(owned_gift_id) if owned_gift_id
+        # Collect parameters for file detection
+        params_hash = {
+          "business_connection_id" => business_connection_id,
+          "owned_gift_id" => owned_gift_id,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          business_connection_id: business_connection_id,
+          owned_gift_id: owned_gift_id,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/convertGiftToStars"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"].as_bool
+        result_data = json_response["result"]
+        Bool.from_json(result_data.to_json)
       end
 
       # upgradeGift
@@ -4702,34 +4462,37 @@ module Telegram
       # Returns: Bool
       # See: https://core.telegram.org/bots/api#upgradegift
       def upgrade_gift(business_connection_id : String, owned_gift_id : String, keep_original_details : Bool? = nil, star_count : Int32? = nil) : Bool
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["business_connection_id"] = JSON::Any.new(business_connection_id) if business_connection_id
-        params["owned_gift_id"] = JSON::Any.new(owned_gift_id) if owned_gift_id
-        params["keep_original_details"] = JSON::Any.new(keep_original_details) if keep_original_details
-        params["star_count"] = JSON::Any.new(star_count) if star_count
+        # Collect parameters for file detection
+        params_hash = {
+          "business_connection_id" => business_connection_id,
+          "owned_gift_id" => owned_gift_id,
+          "keep_original_details" => keep_original_details,
+          "star_count" => star_count,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          business_connection_id: business_connection_id,
+          owned_gift_id: owned_gift_id,
+          keep_original_details: keep_original_details,
+          star_count: star_count,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/upgradeGift"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"].as_bool
+        result_data = json_response["result"]
+        Bool.from_json(result_data.to_json)
       end
 
       # transferGift
@@ -4738,34 +4501,37 @@ module Telegram
       # Returns: Bool
       # See: https://core.telegram.org/bots/api#transfergift
       def transfer_gift(business_connection_id : String, owned_gift_id : String, new_owner_chat_id : Int32, star_count : Int32? = nil) : Bool
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["business_connection_id"] = JSON::Any.new(business_connection_id) if business_connection_id
-        params["owned_gift_id"] = JSON::Any.new(owned_gift_id) if owned_gift_id
-        params["new_owner_chat_id"] = JSON::Any.new(new_owner_chat_id) if new_owner_chat_id
-        params["star_count"] = JSON::Any.new(star_count) if star_count
+        # Collect parameters for file detection
+        params_hash = {
+          "business_connection_id" => business_connection_id,
+          "owned_gift_id" => owned_gift_id,
+          "new_owner_chat_id" => new_owner_chat_id,
+          "star_count" => star_count,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          business_connection_id: business_connection_id,
+          owned_gift_id: owned_gift_id,
+          new_owner_chat_id: new_owner_chat_id,
+          star_count: star_count,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/transferGift"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"].as_bool
+        result_data = json_response["result"]
+        Bool.from_json(result_data.to_json)
       end
 
       # postStory
@@ -4774,39 +4540,47 @@ module Telegram
       # Returns: Story
       # See: https://core.telegram.org/bots/api#poststory
       def post_story(business_connection_id : String, content : InputStoryContent, active_period : Int32, caption : String? = nil, parse_mode : String? = nil, caption_entities : Array(MessageEntity)? = nil, areas : Array(StoryArea)? = nil, post_to_chat_page : Bool? = nil, protect_content : Bool? = nil) : Story
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["business_connection_id"] = JSON::Any.new(business_connection_id) if business_connection_id
-        params["content"] = JSON::Any.new(content) if content
-        params["active_period"] = JSON::Any.new(active_period) if active_period
-        params["caption"] = JSON::Any.new(caption) if caption
-        params["parse_mode"] = JSON::Any.new(parse_mode) if parse_mode
-        params["caption_entities"] = JSON::Any.new(caption_entities) if caption_entities
-        params["areas"] = JSON::Any.new(areas) if areas
-        params["post_to_chat_page"] = JSON::Any.new(post_to_chat_page) if post_to_chat_page
-        params["protect_content"] = JSON::Any.new(protect_content) if protect_content
+        # Collect parameters for file detection
+        params_hash = {
+          "business_connection_id" => business_connection_id,
+          "content" => content,
+          "active_period" => active_period,
+          "caption" => caption,
+          "parse_mode" => parse_mode,
+          "caption_entities" => caption_entities,
+          "areas" => areas,
+          "post_to_chat_page" => post_to_chat_page,
+          "protect_content" => protect_content,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          business_connection_id: business_connection_id,
+          content: content,
+          active_period: active_period,
+          caption: caption,
+          parse_mode: parse_mode,
+          caption_entities: caption_entities,
+          areas: areas,
+          post_to_chat_page: post_to_chat_page,
+          protect_content: protect_content,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/postStory"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        Story.from_json(json_response["result"].to_json)
+        result_data = json_response["result"]
+        Story.from_json(result_data.to_json)
       end
 
       # editStory
@@ -4815,37 +4589,43 @@ module Telegram
       # Returns: Story
       # See: https://core.telegram.org/bots/api#editstory
       def edit_story(business_connection_id : String, story_id : Int32, content : InputStoryContent, caption : String? = nil, parse_mode : String? = nil, caption_entities : Array(MessageEntity)? = nil, areas : Array(StoryArea)? = nil) : Story
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["business_connection_id"] = JSON::Any.new(business_connection_id) if business_connection_id
-        params["story_id"] = JSON::Any.new(story_id) if story_id
-        params["content"] = JSON::Any.new(content) if content
-        params["caption"] = JSON::Any.new(caption) if caption
-        params["parse_mode"] = JSON::Any.new(parse_mode) if parse_mode
-        params["caption_entities"] = JSON::Any.new(caption_entities) if caption_entities
-        params["areas"] = JSON::Any.new(areas) if areas
+        # Collect parameters for file detection
+        params_hash = {
+          "business_connection_id" => business_connection_id,
+          "story_id" => story_id,
+          "content" => content,
+          "caption" => caption,
+          "parse_mode" => parse_mode,
+          "caption_entities" => caption_entities,
+          "areas" => areas,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          business_connection_id: business_connection_id,
+          story_id: story_id,
+          content: content,
+          caption: caption,
+          parse_mode: parse_mode,
+          caption_entities: caption_entities,
+          areas: areas,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/editStory"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        Story.from_json(json_response["result"].to_json)
+        result_data = json_response["result"]
+        Story.from_json(result_data.to_json)
       end
 
       # deleteStory
@@ -4854,32 +4634,33 @@ module Telegram
       # Returns: Bool
       # See: https://core.telegram.org/bots/api#deletestory
       def delete_story(business_connection_id : String, story_id : Int32) : Bool
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["business_connection_id"] = JSON::Any.new(business_connection_id) if business_connection_id
-        params["story_id"] = JSON::Any.new(story_id) if story_id
+        # Collect parameters for file detection
+        params_hash = {
+          "business_connection_id" => business_connection_id,
+          "story_id" => story_id,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          business_connection_id: business_connection_id,
+          story_id: story_id,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/deleteStory"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"].as_bool
+        result_data = json_response["result"]
+        Bool.from_json(result_data.to_json)
       end
 
       # editMessageText
@@ -4888,39 +4669,47 @@ module Telegram
       # Returns: JSON::Any
       # See: https://core.telegram.org/bots/api#editmessagetext
       def edit_message_text(text : String, business_connection_id : String? = nil, chat_id : Int32 | String? = nil, message_id : Int32? = nil, inline_message_id : String? = nil, parse_mode : String? = nil, entities : Array(MessageEntity)? = nil, link_preview_options : LinkPreviewOptions? = nil, reply_markup : InlineKeyboardMarkup? = nil) : JSON::Any
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["business_connection_id"] = JSON::Any.new(business_connection_id) if business_connection_id
-        params["chat_id"] = JSON::Any.new(chat_id) if chat_id
-        params["message_id"] = JSON::Any.new(message_id) if message_id
-        params["inline_message_id"] = JSON::Any.new(inline_message_id) if inline_message_id
-        params["text"] = JSON::Any.new(text) if text
-        params["parse_mode"] = JSON::Any.new(parse_mode) if parse_mode
-        params["entities"] = JSON::Any.new(entities) if entities
-        params["link_preview_options"] = JSON::Any.new(link_preview_options) if link_preview_options
-        params["reply_markup"] = JSON::Any.new(reply_markup) if reply_markup
+        # Collect parameters for file detection
+        params_hash = {
+          "business_connection_id" => business_connection_id,
+          "chat_id" => chat_id,
+          "message_id" => message_id,
+          "inline_message_id" => inline_message_id,
+          "text" => text,
+          "parse_mode" => parse_mode,
+          "entities" => entities,
+          "link_preview_options" => link_preview_options,
+          "reply_markup" => reply_markup,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          business_connection_id: business_connection_id,
+          chat_id: chat_id,
+          message_id: message_id,
+          inline_message_id: inline_message_id,
+          text: text,
+          parse_mode: parse_mode,
+          entities: entities,
+          link_preview_options: link_preview_options,
+          reply_markup: reply_markup,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/editMessageText"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"]
+        result_data = json_response["result"]
+        JSON::Any.from_json(result_data.to_json)
       end
 
       # editMessageCaption
@@ -4929,39 +4718,47 @@ module Telegram
       # Returns: JSON::Any
       # See: https://core.telegram.org/bots/api#editmessagecaption
       def edit_message_caption(business_connection_id : String? = nil, chat_id : Int32 | String? = nil, message_id : Int32? = nil, inline_message_id : String? = nil, caption : String? = nil, parse_mode : String? = nil, caption_entities : Array(MessageEntity)? = nil, show_caption_above_media : Bool? = nil, reply_markup : InlineKeyboardMarkup? = nil) : JSON::Any
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["business_connection_id"] = JSON::Any.new(business_connection_id) if business_connection_id
-        params["chat_id"] = JSON::Any.new(chat_id) if chat_id
-        params["message_id"] = JSON::Any.new(message_id) if message_id
-        params["inline_message_id"] = JSON::Any.new(inline_message_id) if inline_message_id
-        params["caption"] = JSON::Any.new(caption) if caption
-        params["parse_mode"] = JSON::Any.new(parse_mode) if parse_mode
-        params["caption_entities"] = JSON::Any.new(caption_entities) if caption_entities
-        params["show_caption_above_media"] = JSON::Any.new(show_caption_above_media) if show_caption_above_media
-        params["reply_markup"] = JSON::Any.new(reply_markup) if reply_markup
+        # Collect parameters for file detection
+        params_hash = {
+          "business_connection_id" => business_connection_id,
+          "chat_id" => chat_id,
+          "message_id" => message_id,
+          "inline_message_id" => inline_message_id,
+          "caption" => caption,
+          "parse_mode" => parse_mode,
+          "caption_entities" => caption_entities,
+          "show_caption_above_media" => show_caption_above_media,
+          "reply_markup" => reply_markup,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          business_connection_id: business_connection_id,
+          chat_id: chat_id,
+          message_id: message_id,
+          inline_message_id: inline_message_id,
+          caption: caption,
+          parse_mode: parse_mode,
+          caption_entities: caption_entities,
+          show_caption_above_media: show_caption_above_media,
+          reply_markup: reply_markup,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/editMessageCaption"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"]
+        result_data = json_response["result"]
+        JSON::Any.from_json(result_data.to_json)
       end
 
       # editMessageMedia
@@ -4970,36 +4767,41 @@ module Telegram
       # Returns: JSON::Any
       # See: https://core.telegram.org/bots/api#editmessagemedia
       def edit_message_media(media : InputMedia, business_connection_id : String? = nil, chat_id : Int32 | String? = nil, message_id : Int32? = nil, inline_message_id : String? = nil, reply_markup : InlineKeyboardMarkup? = nil) : JSON::Any
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["business_connection_id"] = JSON::Any.new(business_connection_id) if business_connection_id
-        params["chat_id"] = JSON::Any.new(chat_id) if chat_id
-        params["message_id"] = JSON::Any.new(message_id) if message_id
-        params["inline_message_id"] = JSON::Any.new(inline_message_id) if inline_message_id
-        params["media"] = JSON::Any.new(media) if media
-        params["reply_markup"] = JSON::Any.new(reply_markup) if reply_markup
+        # Collect parameters for file detection
+        params_hash = {
+          "business_connection_id" => business_connection_id,
+          "chat_id" => chat_id,
+          "message_id" => message_id,
+          "inline_message_id" => inline_message_id,
+          "media" => media,
+          "reply_markup" => reply_markup,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          business_connection_id: business_connection_id,
+          chat_id: chat_id,
+          message_id: message_id,
+          inline_message_id: inline_message_id,
+          media: media,
+          reply_markup: reply_markup,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/editMessageMedia"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"]
+        result_data = json_response["result"]
+        JSON::Any.from_json(result_data.to_json)
       end
 
       # editMessageLiveLocation
@@ -5008,41 +4810,51 @@ module Telegram
       # Returns: JSON::Any
       # See: https://core.telegram.org/bots/api#editmessagelivelocation
       def edit_message_live_location(latitude : Float64, longitude : Float64, business_connection_id : String? = nil, chat_id : Int32 | String? = nil, message_id : Int32? = nil, inline_message_id : String? = nil, live_period : Int32? = nil, horizontal_accuracy : Float64? = nil, heading : Int32? = nil, proximity_alert_radius : Int32? = nil, reply_markup : InlineKeyboardMarkup? = nil) : JSON::Any
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["business_connection_id"] = JSON::Any.new(business_connection_id) if business_connection_id
-        params["chat_id"] = JSON::Any.new(chat_id) if chat_id
-        params["message_id"] = JSON::Any.new(message_id) if message_id
-        params["inline_message_id"] = JSON::Any.new(inline_message_id) if inline_message_id
-        params["latitude"] = JSON::Any.new(latitude) if latitude
-        params["longitude"] = JSON::Any.new(longitude) if longitude
-        params["live_period"] = JSON::Any.new(live_period) if live_period
-        params["horizontal_accuracy"] = JSON::Any.new(horizontal_accuracy) if horizontal_accuracy
-        params["heading"] = JSON::Any.new(heading) if heading
-        params["proximity_alert_radius"] = JSON::Any.new(proximity_alert_radius) if proximity_alert_radius
-        params["reply_markup"] = JSON::Any.new(reply_markup) if reply_markup
+        # Collect parameters for file detection
+        params_hash = {
+          "business_connection_id" => business_connection_id,
+          "chat_id" => chat_id,
+          "message_id" => message_id,
+          "inline_message_id" => inline_message_id,
+          "latitude" => latitude,
+          "longitude" => longitude,
+          "live_period" => live_period,
+          "horizontal_accuracy" => horizontal_accuracy,
+          "heading" => heading,
+          "proximity_alert_radius" => proximity_alert_radius,
+          "reply_markup" => reply_markup,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          business_connection_id: business_connection_id,
+          chat_id: chat_id,
+          message_id: message_id,
+          inline_message_id: inline_message_id,
+          latitude: latitude,
+          longitude: longitude,
+          live_period: live_period,
+          horizontal_accuracy: horizontal_accuracy,
+          heading: heading,
+          proximity_alert_radius: proximity_alert_radius,
+          reply_markup: reply_markup,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/editMessageLiveLocation"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"]
+        result_data = json_response["result"]
+        JSON::Any.from_json(result_data.to_json)
       end
 
       # stopMessageLiveLocation
@@ -5051,35 +4863,39 @@ module Telegram
       # Returns: JSON::Any
       # See: https://core.telegram.org/bots/api#stopmessagelivelocation
       def stop_message_live_location(business_connection_id : String? = nil, chat_id : Int32 | String? = nil, message_id : Int32? = nil, inline_message_id : String? = nil, reply_markup : InlineKeyboardMarkup? = nil) : JSON::Any
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["business_connection_id"] = JSON::Any.new(business_connection_id) if business_connection_id
-        params["chat_id"] = JSON::Any.new(chat_id) if chat_id
-        params["message_id"] = JSON::Any.new(message_id) if message_id
-        params["inline_message_id"] = JSON::Any.new(inline_message_id) if inline_message_id
-        params["reply_markup"] = JSON::Any.new(reply_markup) if reply_markup
+        # Collect parameters for file detection
+        params_hash = {
+          "business_connection_id" => business_connection_id,
+          "chat_id" => chat_id,
+          "message_id" => message_id,
+          "inline_message_id" => inline_message_id,
+          "reply_markup" => reply_markup,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          business_connection_id: business_connection_id,
+          chat_id: chat_id,
+          message_id: message_id,
+          inline_message_id: inline_message_id,
+          reply_markup: reply_markup,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/stopMessageLiveLocation"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"]
+        result_data = json_response["result"]
+        JSON::Any.from_json(result_data.to_json)
       end
 
       # editMessageChecklist
@@ -5088,35 +4904,39 @@ module Telegram
       # Returns: Message
       # See: https://core.telegram.org/bots/api#editmessagechecklist
       def edit_message_checklist(business_connection_id : String, chat_id : Int32, message_id : Int32, checklist : InputChecklist, reply_markup : InlineKeyboardMarkup? = nil) : Message
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["business_connection_id"] = JSON::Any.new(business_connection_id) if business_connection_id
-        params["chat_id"] = JSON::Any.new(chat_id) if chat_id
-        params["message_id"] = JSON::Any.new(message_id) if message_id
-        params["checklist"] = JSON::Any.new(checklist) if checklist
-        params["reply_markup"] = JSON::Any.new(reply_markup) if reply_markup
+        # Collect parameters for file detection
+        params_hash = {
+          "business_connection_id" => business_connection_id,
+          "chat_id" => chat_id,
+          "message_id" => message_id,
+          "checklist" => checklist,
+          "reply_markup" => reply_markup,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          business_connection_id: business_connection_id,
+          chat_id: chat_id,
+          message_id: message_id,
+          checklist: checklist,
+          reply_markup: reply_markup,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/editMessageChecklist"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        Message.from_json(json_response["result"].to_json)
+        result_data = json_response["result"]
+        Message.from_json(result_data.to_json)
       end
 
       # editMessageReplyMarkup
@@ -5125,35 +4945,39 @@ module Telegram
       # Returns: JSON::Any
       # See: https://core.telegram.org/bots/api#editmessagereplymarkup
       def edit_message_reply_markup(business_connection_id : String? = nil, chat_id : Int32 | String? = nil, message_id : Int32? = nil, inline_message_id : String? = nil, reply_markup : InlineKeyboardMarkup? = nil) : JSON::Any
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["business_connection_id"] = JSON::Any.new(business_connection_id) if business_connection_id
-        params["chat_id"] = JSON::Any.new(chat_id) if chat_id
-        params["message_id"] = JSON::Any.new(message_id) if message_id
-        params["inline_message_id"] = JSON::Any.new(inline_message_id) if inline_message_id
-        params["reply_markup"] = JSON::Any.new(reply_markup) if reply_markup
+        # Collect parameters for file detection
+        params_hash = {
+          "business_connection_id" => business_connection_id,
+          "chat_id" => chat_id,
+          "message_id" => message_id,
+          "inline_message_id" => inline_message_id,
+          "reply_markup" => reply_markup,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          business_connection_id: business_connection_id,
+          chat_id: chat_id,
+          message_id: message_id,
+          inline_message_id: inline_message_id,
+          reply_markup: reply_markup,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/editMessageReplyMarkup"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"]
+        result_data = json_response["result"]
+        JSON::Any.from_json(result_data.to_json)
       end
 
       # stopPoll
@@ -5162,34 +4986,37 @@ module Telegram
       # Returns: Poll
       # See: https://core.telegram.org/bots/api#stoppoll
       def stop_poll(chat_id : Int32 | String, message_id : Int32, business_connection_id : String? = nil, reply_markup : InlineKeyboardMarkup? = nil) : Poll
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["business_connection_id"] = JSON::Any.new(business_connection_id) if business_connection_id
-        params["chat_id"] = JSON::Any.new(chat_id) if chat_id
-        params["message_id"] = JSON::Any.new(message_id) if message_id
-        params["reply_markup"] = JSON::Any.new(reply_markup) if reply_markup
+        # Collect parameters for file detection
+        params_hash = {
+          "business_connection_id" => business_connection_id,
+          "chat_id" => chat_id,
+          "message_id" => message_id,
+          "reply_markup" => reply_markup,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          business_connection_id: business_connection_id,
+          chat_id: chat_id,
+          message_id: message_id,
+          reply_markup: reply_markup,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/stopPoll"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        Poll.from_json(json_response["result"].to_json)
+        result_data = json_response["result"]
+        Poll.from_json(result_data.to_json)
       end
 
       # approveSuggestedPost
@@ -5198,33 +5025,35 @@ module Telegram
       # Returns: Bool
       # See: https://core.telegram.org/bots/api#approvesuggestedpost
       def approve_suggested_post(chat_id : Int32, message_id : Int32, send_date : Int32? = nil) : Bool
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["chat_id"] = JSON::Any.new(chat_id) if chat_id
-        params["message_id"] = JSON::Any.new(message_id) if message_id
-        params["send_date"] = JSON::Any.new(send_date) if send_date
+        # Collect parameters for file detection
+        params_hash = {
+          "chat_id" => chat_id,
+          "message_id" => message_id,
+          "send_date" => send_date,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          chat_id: chat_id,
+          message_id: message_id,
+          send_date: send_date,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/approveSuggestedPost"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"].as_bool
+        result_data = json_response["result"]
+        Bool.from_json(result_data.to_json)
       end
 
       # declineSuggestedPost
@@ -5233,33 +5062,35 @@ module Telegram
       # Returns: Bool
       # See: https://core.telegram.org/bots/api#declinesuggestedpost
       def decline_suggested_post(chat_id : Int32, message_id : Int32, comment : String? = nil) : Bool
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["chat_id"] = JSON::Any.new(chat_id) if chat_id
-        params["message_id"] = JSON::Any.new(message_id) if message_id
-        params["comment"] = JSON::Any.new(comment) if comment
+        # Collect parameters for file detection
+        params_hash = {
+          "chat_id" => chat_id,
+          "message_id" => message_id,
+          "comment" => comment,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          chat_id: chat_id,
+          message_id: message_id,
+          comment: comment,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/declineSuggestedPost"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"].as_bool
+        result_data = json_response["result"]
+        Bool.from_json(result_data.to_json)
       end
 
       # deleteMessage
@@ -5278,32 +5109,33 @@ module Telegram
       # Returns: Bool
       # See: https://core.telegram.org/bots/api#deletemessage
       def delete_message(chat_id : Int32 | String, message_id : Int32) : Bool
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["chat_id"] = JSON::Any.new(chat_id) if chat_id
-        params["message_id"] = JSON::Any.new(message_id) if message_id
+        # Collect parameters for file detection
+        params_hash = {
+          "chat_id" => chat_id,
+          "message_id" => message_id,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          chat_id: chat_id,
+          message_id: message_id,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/deleteMessage"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"].as_bool
+        result_data = json_response["result"]
+        Bool.from_json(result_data.to_json)
       end
 
       # deleteMessages
@@ -5312,32 +5144,33 @@ module Telegram
       # Returns: Bool
       # See: https://core.telegram.org/bots/api#deletemessages
       def delete_messages(chat_id : Int32 | String, message_ids : Array(Int32)) : Bool
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["chat_id"] = JSON::Any.new(chat_id) if chat_id
-        params["message_ids"] = JSON::Any.new(message_ids) if message_ids
+        # Collect parameters for file detection
+        params_hash = {
+          "chat_id" => chat_id,
+          "message_ids" => message_ids,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          chat_id: chat_id,
+          message_ids: message_ids,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/deleteMessages"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"].as_bool
+        result_data = json_response["result"]
+        Bool.from_json(result_data.to_json)
       end
 
       # sendSticker
@@ -5345,98 +5178,56 @@ module Telegram
       #
       # Returns: Message
       # See: https://core.telegram.org/bots/api#sendsticker
-      def send_sticker(chat_id : Int32 | String, sticker : File | IO | String, business_connection_id : String? = nil, message_thread_id : Int32? = nil, direct_messages_topic_id : Int32? = nil, emoji : String? = nil, disable_notification : Bool? = nil, protect_content : Bool? = nil, allow_paid_broadcast : Bool? = nil, message_effect_id : String? = nil, suggested_post_parameters : SuggestedPostParameters? = nil, reply_parameters : ReplyParameters? = nil, reply_markup : InlineKeyboardMarkup | ReplyKeyboardMarkup | ReplyKeyboardRemove | ForceReply? = nil) : Message
-        # Build multipart form data for file upload
-        boundary = MIME::Multipart.generate_boundary
-        form_body = MIME::Multipart.build(boundary) do |builder|
-          if business_connection_id
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"business_connection_id\""}
-            builder.body_part(headers, business_connection_id.to_s)
-          end
-          if chat_id
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"chat_id\""}
-            builder.body_part(headers, chat_id.to_s)
-          end
-          if message_thread_id
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"message_thread_id\""}
-            builder.body_part(headers, message_thread_id.to_s)
-          end
-          if direct_messages_topic_id
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"direct_messages_topic_id\""}
-            builder.body_part(headers, direct_messages_topic_id.to_s)
-          end
-          if sticker
-            if sticker.is_a?(File)
-              file_io = sticker
-              filename = File.basename(sticker.path)
-            elsif sticker.is_a?(IO)
-              file_io = sticker
-              filename = "file"
-            else
-              file_io = IO::Memory.new(sticker.to_s)
-              filename = "file"
-            end
-            headers = HTTP::Headers{
-              "Content-Disposition" => "form-data; name=\"sticker\"; filename=\"#{filename}\"",
-              "Content-Type" => "application/octet-stream"
-            }
-            builder.body_part(headers, file_io)
-          end
-          if emoji
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"emoji\""}
-            builder.body_part(headers, emoji.to_s)
-          end
-          if disable_notification
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"disable_notification\""}
-            builder.body_part(headers, disable_notification.to_s)
-          end
-          if protect_content
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"protect_content\""}
-            builder.body_part(headers, protect_content.to_s)
-          end
-          if allow_paid_broadcast
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"allow_paid_broadcast\""}
-            builder.body_part(headers, allow_paid_broadcast.to_s)
-          end
-          if message_effect_id
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"message_effect_id\""}
-            builder.body_part(headers, message_effect_id.to_s)
-          end
-          if suggested_post_parameters
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"suggested_post_parameters\""}
-            builder.body_part(headers, suggested_post_parameters.to_s)
-          end
-          if reply_parameters
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"reply_parameters\""}
-            builder.body_part(headers, reply_parameters.to_s)
-          end
-          if reply_markup
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"reply_markup\""}
-            builder.body_part(headers, reply_markup.to_s)
-          end
-        end
+      def send_sticker(chat_id : Int32 | String, sticker : Telegram::InputFile | File | IO | String, business_connection_id : String? = nil, message_thread_id : Int32? = nil, direct_messages_topic_id : Int32? = nil, emoji : String? = nil, disable_notification : Bool? = nil, protect_content : Bool? = nil, allow_paid_broadcast : Bool? = nil, message_effect_id : String? = nil, suggested_post_parameters : SuggestedPostParameters? = nil, reply_parameters : ReplyParameters? = nil, reply_markup : InlineKeyboardMarkup | ReplyKeyboardMarkup | ReplyKeyboardRemove | ForceReply? = nil) : Message
+        # Collect parameters for file detection
+        params_hash = {
+          "business_connection_id" => business_connection_id,
+          "chat_id" => chat_id,
+          "message_thread_id" => message_thread_id,
+          "direct_messages_topic_id" => direct_messages_topic_id,
+          "sticker" => sticker,
+          "emoji" => emoji,
+          "disable_notification" => disable_notification,
+          "protect_content" => protect_content,
+          "allow_paid_broadcast" => allow_paid_broadcast,
+          "message_effect_id" => message_effect_id,
+          "suggested_post_parameters" => suggested_post_parameters,
+          "reply_parameters" => reply_parameters,
+          "reply_markup" => reply_markup,
+        }
 
-        # Make HTTP request with multipart form
-        url = "#{@api_url}/bot#{@token}/sendSticker"
-        response = HTTP::Client.post(url,
-          headers: HTTP::Headers{"Content-Type" => "multipart/form-data; boundary=#{boundary}"},
-          body: form_body
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          business_connection_id: business_connection_id,
+          chat_id: chat_id,
+          message_thread_id: message_thread_id,
+          direct_messages_topic_id: direct_messages_topic_id,
+          sticker: sticker,
+          emoji: emoji,
+          disable_notification: disable_notification,
+          protect_content: protect_content,
+          allow_paid_broadcast: allow_paid_broadcast,
+          message_effect_id: message_effect_id,
+          suggested_post_parameters: suggested_post_parameters,
+          reply_parameters: reply_parameters,
+          reply_markup: reply_markup,
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
+        # Make HTTP request using enhanced client
+        url = "#{@api_url}/bot#{@token}/sendSticker"
+        response = @http_client.post(url,
+          headers: HTTP::Headers{"Content-Type" => "application/json"},
+          body: params.to_json
+        )
 
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        Message.from_json(json_response["result"].to_json)
+        result_data = json_response["result"]
+        Message.from_json(result_data.to_json)
       end
 
       # getStickerSet
@@ -5445,31 +5236,31 @@ module Telegram
       # Returns: StickerSet
       # See: https://core.telegram.org/bots/api#getstickerset
       def get_sticker_set(name : String) : StickerSet
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["name"] = JSON::Any.new(name) if name
+        # Collect parameters for file detection
+        params_hash = {
+          "name" => name,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          name: name,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/getStickerSet"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        StickerSet.from_json(json_response["result"].to_json)
+        result_data = json_response["result"]
+        StickerSet.from_json(result_data.to_json)
       end
 
       # getCustomEmojiStickers
@@ -5478,31 +5269,31 @@ module Telegram
       # Returns: Array(Sticker)
       # See: https://core.telegram.org/bots/api#getcustomemojistickers
       def get_custom_emoji_stickers(custom_emoji_ids : Array(String)) : Array(Sticker)
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["custom_emoji_ids"] = JSON::Any.new(custom_emoji_ids) if custom_emoji_ids
+        # Collect parameters for file detection
+        params_hash = {
+          "custom_emoji_ids" => custom_emoji_ids,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          custom_emoji_ids: custom_emoji_ids,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/getCustomEmojiStickers"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"].as_a.map { |item| Sticker.from_json(item.to_json) }
+        result_data = json_response["result"]
+        Array(Sticker).from_json(result_data.to_json)
       end
 
       # uploadStickerFile
@@ -5510,58 +5301,44 @@ module Telegram
       #
       # Returns: TelegramFile
       # See: https://core.telegram.org/bots/api#uploadstickerfile
-      def upload_sticker_file(user_id : Int32, sticker : File | IO, sticker_format : String) : TelegramFile
-        # Build multipart form data for file upload
-        boundary = MIME::Multipart.generate_boundary
-        form_body = MIME::Multipart.build(boundary) do |builder|
-          if user_id
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"user_id\""}
-            builder.body_part(headers, user_id.to_s)
-          end
-          if sticker
-            if sticker.is_a?(File)
-              file_io = sticker
-              filename = File.basename(sticker.path)
-            elsif sticker.is_a?(IO)
-              file_io = sticker
-              filename = "file"
-            else
-              file_io = IO::Memory.new(sticker.to_s)
-              filename = "file"
-            end
-            headers = HTTP::Headers{
-              "Content-Disposition" => "form-data; name=\"sticker\"; filename=\"#{filename}\"",
-              "Content-Type" => "application/octet-stream"
-            }
-            builder.body_part(headers, file_io)
-          end
-          if sticker_format
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"sticker_format\""}
-            builder.body_part(headers, sticker_format.to_s)
-          end
+      def upload_sticker_file(user_id : Int32, sticker : Telegram::InputFile | File | IO, sticker_format : String) : TelegramFile
+        # Collect parameters for file detection
+        params_hash = {
+          "user_id" => user_id,
+          "sticker" => sticker,
+          "sticker_format" => sticker_format,
+        }
+
+        # Runtime detection: check if any parameters contain actual file data
+        has_files = contains_file_data?(params_hash)
+
+        if has_files
+          # Use multipart form data for file uploads
+          boundary, form_body = build_multipart_form_with_files(params_hash)
+          
+          # Make HTTP request with multipart form using enhanced client
+          url = "#{@api_url}/bot#{@token}/uploadStickerFile"
+          response = @http_client.post_multipart(url, {boundary, form_body})
+        else
+          # Use JSON request when no files are present
+          params = build_request_hash_from_hash(params_hash)
+          
+          # Make HTTP request using enhanced client
+          url = "#{@api_url}/bot#{@token}/uploadStickerFile"
+          response = @http_client.post(url,
+            headers: HTTP::Headers{"Content-Type" => "application/json"},
+            body: params.to_json
+          )
         end
 
-        # Make HTTP request with multipart form
-        url = "#{@api_url}/bot#{@token}/uploadStickerFile"
-        response = HTTP::Client.post(url,
-          headers: HTTP::Headers{"Content-Type" => "multipart/form-data; boundary=#{boundary}"},
-          body: form_body
-        )
-
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        TelegramFile.from_json(json_response["result"].to_json)
+        result_data = json_response["result"]
+        TelegramFile.from_json(result_data.to_json)
       end
 
       # createNewStickerSet
@@ -5570,36 +5347,46 @@ module Telegram
       # Returns: Bool
       # See: https://core.telegram.org/bots/api#createnewstickerset
       def create_new_sticker_set(user_id : Int32, name : String, title : String, stickers : Array(InputSticker), sticker_type : String? = nil, needs_repainting : Bool? = nil) : Bool
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["user_id"] = JSON::Any.new(user_id) if user_id
-        params["name"] = JSON::Any.new(name) if name
-        params["title"] = JSON::Any.new(title) if title
-        params["stickers"] = JSON::Any.new(stickers) if stickers
-        params["sticker_type"] = JSON::Any.new(sticker_type) if sticker_type
-        params["needs_repainting"] = JSON::Any.new(needs_repainting) if needs_repainting
+        # Collect parameters for file detection
+        params_hash = {
+          "user_id" => user_id,
+          "name" => name,
+          "title" => title,
+          "stickers" => stickers,
+          "sticker_type" => sticker_type,
+          "needs_repainting" => needs_repainting,
+        }
 
-        # Make HTTP request
-        url = "#{@api_url}/bot#{@token}/createNewStickerSet"
-        response = HTTP::Client.post(url,
-          headers: HTTP::Headers{"Content-Type" => "application/json"},
-          body: params.to_json
-        )
+        # Runtime detection: check if any parameters contain actual file data
+        has_files = contains_file_data?(params_hash)
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
+        if has_files
+          # Use multipart form data for file uploads
+          boundary, form_body = build_multipart_form_with_files(params_hash)
+          
+          # Make HTTP request with multipart form using enhanced client
+          url = "#{@api_url}/bot#{@token}/createNewStickerSet"
+          response = @http_client.post_multipart(url, {boundary, form_body})
+        else
+          # Use JSON request when no files are present
+          params = build_request_hash_from_hash(params_hash)
+          
+          # Make HTTP request using enhanced client
+          url = "#{@api_url}/bot#{@token}/createNewStickerSet"
+          response = @http_client.post(url,
+            headers: HTTP::Headers{"Content-Type" => "application/json"},
+            body: params.to_json
+          )
         end
 
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"].as_bool
+        result_data = json_response["result"]
+        Bool.from_json(result_data.to_json)
       end
 
       # addStickerToSet
@@ -5608,33 +5395,43 @@ module Telegram
       # Returns: Bool
       # See: https://core.telegram.org/bots/api#addstickertoset
       def add_sticker_to_set(user_id : Int32, name : String, sticker : InputSticker) : Bool
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["user_id"] = JSON::Any.new(user_id) if user_id
-        params["name"] = JSON::Any.new(name) if name
-        params["sticker"] = JSON::Any.new(sticker) if sticker
+        # Collect parameters for file detection
+        params_hash = {
+          "user_id" => user_id,
+          "name" => name,
+          "sticker" => sticker,
+        }
 
-        # Make HTTP request
-        url = "#{@api_url}/bot#{@token}/addStickerToSet"
-        response = HTTP::Client.post(url,
-          headers: HTTP::Headers{"Content-Type" => "application/json"},
-          body: params.to_json
-        )
+        # Runtime detection: check if any parameters contain actual file data
+        has_files = contains_file_data?(params_hash)
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
+        if has_files
+          # Use multipart form data for file uploads
+          boundary, form_body = build_multipart_form_with_files(params_hash)
+          
+          # Make HTTP request with multipart form using enhanced client
+          url = "#{@api_url}/bot#{@token}/addStickerToSet"
+          response = @http_client.post_multipart(url, {boundary, form_body})
+        else
+          # Use JSON request when no files are present
+          params = build_request_hash_from_hash(params_hash)
+          
+          # Make HTTP request using enhanced client
+          url = "#{@api_url}/bot#{@token}/addStickerToSet"
+          response = @http_client.post(url,
+            headers: HTTP::Headers{"Content-Type" => "application/json"},
+            body: params.to_json
+          )
         end
 
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"].as_bool
+        result_data = json_response["result"]
+        Bool.from_json(result_data.to_json)
       end
 
       # setStickerPositionInSet
@@ -5643,32 +5440,33 @@ module Telegram
       # Returns: Bool
       # See: https://core.telegram.org/bots/api#setstickerpositioninset
       def set_sticker_position_in_set(sticker : String, position : Int32) : Bool
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["sticker"] = JSON::Any.new(sticker) if sticker
-        params["position"] = JSON::Any.new(position) if position
+        # Collect parameters for file detection
+        params_hash = {
+          "sticker" => sticker,
+          "position" => position,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          sticker: sticker,
+          position: position,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/setStickerPositionInSet"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"].as_bool
+        result_data = json_response["result"]
+        Bool.from_json(result_data.to_json)
       end
 
       # deleteStickerFromSet
@@ -5677,31 +5475,31 @@ module Telegram
       # Returns: Bool
       # See: https://core.telegram.org/bots/api#deletestickerfromset
       def delete_sticker_from_set(sticker : String) : Bool
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["sticker"] = JSON::Any.new(sticker) if sticker
+        # Collect parameters for file detection
+        params_hash = {
+          "sticker" => sticker,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          sticker: sticker,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/deleteStickerFromSet"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"].as_bool
+        result_data = json_response["result"]
+        Bool.from_json(result_data.to_json)
       end
 
       # replaceStickerInSet
@@ -5710,34 +5508,44 @@ module Telegram
       # Returns: Bool
       # See: https://core.telegram.org/bots/api#replacestickerinset
       def replace_sticker_in_set(user_id : Int32, name : String, old_sticker : String, sticker : InputSticker) : Bool
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["user_id"] = JSON::Any.new(user_id) if user_id
-        params["name"] = JSON::Any.new(name) if name
-        params["old_sticker"] = JSON::Any.new(old_sticker) if old_sticker
-        params["sticker"] = JSON::Any.new(sticker) if sticker
+        # Collect parameters for file detection
+        params_hash = {
+          "user_id" => user_id,
+          "name" => name,
+          "old_sticker" => old_sticker,
+          "sticker" => sticker,
+        }
 
-        # Make HTTP request
-        url = "#{@api_url}/bot#{@token}/replaceStickerInSet"
-        response = HTTP::Client.post(url,
-          headers: HTTP::Headers{"Content-Type" => "application/json"},
-          body: params.to_json
-        )
+        # Runtime detection: check if any parameters contain actual file data
+        has_files = contains_file_data?(params_hash)
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
+        if has_files
+          # Use multipart form data for file uploads
+          boundary, form_body = build_multipart_form_with_files(params_hash)
+          
+          # Make HTTP request with multipart form using enhanced client
+          url = "#{@api_url}/bot#{@token}/replaceStickerInSet"
+          response = @http_client.post_multipart(url, {boundary, form_body})
+        else
+          # Use JSON request when no files are present
+          params = build_request_hash_from_hash(params_hash)
+          
+          # Make HTTP request using enhanced client
+          url = "#{@api_url}/bot#{@token}/replaceStickerInSet"
+          response = @http_client.post(url,
+            headers: HTTP::Headers{"Content-Type" => "application/json"},
+            body: params.to_json
+          )
         end
 
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"].as_bool
+        result_data = json_response["result"]
+        Bool.from_json(result_data.to_json)
       end
 
       # setStickerEmojiList
@@ -5746,32 +5554,33 @@ module Telegram
       # Returns: Bool
       # See: https://core.telegram.org/bots/api#setstickeremojilist
       def set_sticker_emoji_list(sticker : String, emoji_list : Array(String)) : Bool
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["sticker"] = JSON::Any.new(sticker) if sticker
-        params["emoji_list"] = JSON::Any.new(emoji_list) if emoji_list
+        # Collect parameters for file detection
+        params_hash = {
+          "sticker" => sticker,
+          "emoji_list" => emoji_list,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          sticker: sticker,
+          emoji_list: emoji_list,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/setStickerEmojiList"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"].as_bool
+        result_data = json_response["result"]
+        Bool.from_json(result_data.to_json)
       end
 
       # setStickerKeywords
@@ -5780,32 +5589,33 @@ module Telegram
       # Returns: Bool
       # See: https://core.telegram.org/bots/api#setstickerkeywords
       def set_sticker_keywords(sticker : String, keywords : Array(String)? = nil) : Bool
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["sticker"] = JSON::Any.new(sticker) if sticker
-        params["keywords"] = JSON::Any.new(keywords) if keywords
+        # Collect parameters for file detection
+        params_hash = {
+          "sticker" => sticker,
+          "keywords" => keywords,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          sticker: sticker,
+          keywords: keywords,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/setStickerKeywords"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"].as_bool
+        result_data = json_response["result"]
+        Bool.from_json(result_data.to_json)
       end
 
       # setStickerMaskPosition
@@ -5814,32 +5624,33 @@ module Telegram
       # Returns: Bool
       # See: https://core.telegram.org/bots/api#setstickermaskposition
       def set_sticker_mask_position(sticker : String, mask_position : MaskPosition? = nil) : Bool
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["sticker"] = JSON::Any.new(sticker) if sticker
-        params["mask_position"] = JSON::Any.new(mask_position) if mask_position
+        # Collect parameters for file detection
+        params_hash = {
+          "sticker" => sticker,
+          "mask_position" => mask_position,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          sticker: sticker,
+          mask_position: mask_position,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/setStickerMaskPosition"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"].as_bool
+        result_data = json_response["result"]
+        Bool.from_json(result_data.to_json)
       end
 
       # setStickerSetTitle
@@ -5848,32 +5659,33 @@ module Telegram
       # Returns: Bool
       # See: https://core.telegram.org/bots/api#setstickersettitle
       def set_sticker_set_title(name : String, title : String) : Bool
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["name"] = JSON::Any.new(name) if name
-        params["title"] = JSON::Any.new(title) if title
+        # Collect parameters for file detection
+        params_hash = {
+          "name" => name,
+          "title" => title,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          name: name,
+          title: title,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/setStickerSetTitle"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"].as_bool
+        result_data = json_response["result"]
+        Bool.from_json(result_data.to_json)
       end
 
       # setStickerSetThumbnail
@@ -5881,62 +5693,45 @@ module Telegram
       #
       # Returns: Bool
       # See: https://core.telegram.org/bots/api#setstickersetthumbnail
-      def set_sticker_set_thumbnail(name : String, user_id : Int32, format : String, thumbnail : File | IO | String? = nil) : Bool
-        # Build multipart form data for file upload
-        boundary = MIME::Multipart.generate_boundary
-        form_body = MIME::Multipart.build(boundary) do |builder|
-          if name
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"name\""}
-            builder.body_part(headers, name.to_s)
-          end
-          if user_id
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"user_id\""}
-            builder.body_part(headers, user_id.to_s)
-          end
-          if thumbnail
-            if thumbnail.is_a?(File)
-              file_io = thumbnail
-              filename = File.basename(thumbnail.path)
-            elsif thumbnail.is_a?(IO)
-              file_io = thumbnail
-              filename = "file"
-            else
-              file_io = IO::Memory.new(thumbnail.to_s)
-              filename = "file"
-            end
-            headers = HTTP::Headers{
-              "Content-Disposition" => "form-data; name=\"thumbnail\"; filename=\"#{filename}\"",
-              "Content-Type" => "application/octet-stream"
-            }
-            builder.body_part(headers, file_io)
-          end
-          if format
-            headers = HTTP::Headers{"Content-Disposition" => "form-data; name=\"format\""}
-            builder.body_part(headers, format.to_s)
-          end
+      def set_sticker_set_thumbnail(name : String, user_id : Int32, format : String, thumbnail : Telegram::InputFile | File | IO | String? = nil) : Bool
+        # Collect parameters for file detection
+        params_hash = {
+          "name" => name,
+          "user_id" => user_id,
+          "thumbnail" => thumbnail,
+          "format" => format,
+        }
+
+        # Runtime detection: check if any parameters contain actual file data
+        has_files = contains_file_data?(params_hash)
+
+        if has_files
+          # Use multipart form data for file uploads
+          boundary, form_body = build_multipart_form_with_files(params_hash)
+          
+          # Make HTTP request with multipart form using enhanced client
+          url = "#{@api_url}/bot#{@token}/setStickerSetThumbnail"
+          response = @http_client.post_multipart(url, {boundary, form_body})
+        else
+          # Use JSON request when no files are present
+          params = build_request_hash_from_hash(params_hash)
+          
+          # Make HTTP request using enhanced client
+          url = "#{@api_url}/bot#{@token}/setStickerSetThumbnail"
+          response = @http_client.post(url,
+            headers: HTTP::Headers{"Content-Type" => "application/json"},
+            body: params.to_json
+          )
         end
 
-        # Make HTTP request with multipart form
-        url = "#{@api_url}/bot#{@token}/setStickerSetThumbnail"
-        response = HTTP::Client.post(url,
-          headers: HTTP::Headers{"Content-Type" => "multipart/form-data; boundary=#{boundary}"},
-          body: form_body
-        )
-
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"].as_bool
+        result_data = json_response["result"]
+        Bool.from_json(result_data.to_json)
       end
 
       # setCustomEmojiStickerSetThumbnail
@@ -5945,32 +5740,33 @@ module Telegram
       # Returns: Bool
       # See: https://core.telegram.org/bots/api#setcustomemojistickersetthumbnail
       def set_custom_emoji_sticker_set_thumbnail(name : String, custom_emoji_id : String? = nil) : Bool
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["name"] = JSON::Any.new(name) if name
-        params["custom_emoji_id"] = JSON::Any.new(custom_emoji_id) if custom_emoji_id
+        # Collect parameters for file detection
+        params_hash = {
+          "name" => name,
+          "custom_emoji_id" => custom_emoji_id,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          name: name,
+          custom_emoji_id: custom_emoji_id,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/setCustomEmojiStickerSetThumbnail"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"].as_bool
+        result_data = json_response["result"]
+        Bool.from_json(result_data.to_json)
       end
 
       # deleteStickerSet
@@ -5979,31 +5775,31 @@ module Telegram
       # Returns: Bool
       # See: https://core.telegram.org/bots/api#deletestickerset
       def delete_sticker_set(name : String) : Bool
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["name"] = JSON::Any.new(name) if name
+        # Collect parameters for file detection
+        params_hash = {
+          "name" => name,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          name: name,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/deleteStickerSet"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"].as_bool
+        result_data = json_response["result"]
+        Bool.from_json(result_data.to_json)
       end
 
       # answerInlineQuery
@@ -6013,36 +5809,41 @@ module Telegram
       # Returns: Bool
       # See: https://core.telegram.org/bots/api#answerinlinequery
       def answer_inline_query(inline_query_id : String, results : Array(InlineQueryResult), cache_time : Int32? = nil, is_personal : Bool? = nil, next_offset : String? = nil, button : InlineQueryResultsButton? = nil) : Bool
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["inline_query_id"] = JSON::Any.new(inline_query_id) if inline_query_id
-        params["results"] = JSON::Any.new(results) if results
-        params["cache_time"] = JSON::Any.new(cache_time) if cache_time
-        params["is_personal"] = JSON::Any.new(is_personal) if is_personal
-        params["next_offset"] = JSON::Any.new(next_offset) if next_offset
-        params["button"] = JSON::Any.new(button) if button
+        # Collect parameters for file detection
+        params_hash = {
+          "inline_query_id" => inline_query_id,
+          "results" => results,
+          "cache_time" => cache_time,
+          "is_personal" => is_personal,
+          "next_offset" => next_offset,
+          "button" => button,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          inline_query_id: inline_query_id,
+          results: results,
+          cache_time: cache_time,
+          is_personal: is_personal,
+          next_offset: next_offset,
+          button: button,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/answerInlineQuery"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"].as_bool
+        result_data = json_response["result"]
+        Bool.from_json(result_data.to_json)
       end
 
       # answerWebAppQuery
@@ -6051,32 +5852,33 @@ module Telegram
       # Returns: SentWebAppMessage
       # See: https://core.telegram.org/bots/api#answerwebappquery
       def answer_web_app_query(web_app_query_id : String, result : InlineQueryResult) : SentWebAppMessage
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["web_app_query_id"] = JSON::Any.new(web_app_query_id) if web_app_query_id
-        params["result"] = JSON::Any.new(result) if result
+        # Collect parameters for file detection
+        params_hash = {
+          "web_app_query_id" => web_app_query_id,
+          "result" => result,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          web_app_query_id: web_app_query_id,
+          result: result,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/answerWebAppQuery"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        SentWebAppMessage.from_json(json_response["result"].to_json)
+        result_data = json_response["result"]
+        SentWebAppMessage.from_json(result_data.to_json)
       end
 
       # savePreparedInlineMessage
@@ -6085,36 +5887,41 @@ module Telegram
       # Returns: PreparedInlineMessage
       # See: https://core.telegram.org/bots/api#savepreparedinlinemessage
       def save_prepared_inline_message(user_id : Int32, result : InlineQueryResult, allow_user_chats : Bool? = nil, allow_bot_chats : Bool? = nil, allow_group_chats : Bool? = nil, allow_channel_chats : Bool? = nil) : PreparedInlineMessage
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["user_id"] = JSON::Any.new(user_id) if user_id
-        params["result"] = JSON::Any.new(result) if result
-        params["allow_user_chats"] = JSON::Any.new(allow_user_chats) if allow_user_chats
-        params["allow_bot_chats"] = JSON::Any.new(allow_bot_chats) if allow_bot_chats
-        params["allow_group_chats"] = JSON::Any.new(allow_group_chats) if allow_group_chats
-        params["allow_channel_chats"] = JSON::Any.new(allow_channel_chats) if allow_channel_chats
+        # Collect parameters for file detection
+        params_hash = {
+          "user_id" => user_id,
+          "result" => result,
+          "allow_user_chats" => allow_user_chats,
+          "allow_bot_chats" => allow_bot_chats,
+          "allow_group_chats" => allow_group_chats,
+          "allow_channel_chats" => allow_channel_chats,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          user_id: user_id,
+          result: result,
+          allow_user_chats: allow_user_chats,
+          allow_bot_chats: allow_bot_chats,
+          allow_group_chats: allow_group_chats,
+          allow_channel_chats: allow_channel_chats,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/savePreparedInlineMessage"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        PreparedInlineMessage.from_json(json_response["result"].to_json)
+        result_data = json_response["result"]
+        PreparedInlineMessage.from_json(result_data.to_json)
       end
 
       # sendInvoice
@@ -6123,61 +5930,91 @@ module Telegram
       # Returns: Message
       # See: https://core.telegram.org/bots/api#sendinvoice
       def send_invoice(chat_id : Int32 | String, title : String, description : String, payload : String, currency : String, prices : Array(LabeledPrice), message_thread_id : Int32? = nil, direct_messages_topic_id : Int32? = nil, provider_token : String? = nil, max_tip_amount : Int32? = nil, suggested_tip_amounts : Array(Int32)? = nil, start_parameter : String? = nil, provider_data : String? = nil, photo_url : String? = nil, photo_size : Int32? = nil, photo_width : Int32? = nil, photo_height : Int32? = nil, need_name : Bool? = nil, need_phone_number : Bool? = nil, need_email : Bool? = nil, need_shipping_address : Bool? = nil, send_phone_number_to_provider : Bool? = nil, send_email_to_provider : Bool? = nil, is_flexible : Bool? = nil, disable_notification : Bool? = nil, protect_content : Bool? = nil, allow_paid_broadcast : Bool? = nil, message_effect_id : String? = nil, suggested_post_parameters : SuggestedPostParameters? = nil, reply_parameters : ReplyParameters? = nil, reply_markup : InlineKeyboardMarkup? = nil) : Message
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["chat_id"] = JSON::Any.new(chat_id) if chat_id
-        params["message_thread_id"] = JSON::Any.new(message_thread_id) if message_thread_id
-        params["direct_messages_topic_id"] = JSON::Any.new(direct_messages_topic_id) if direct_messages_topic_id
-        params["title"] = JSON::Any.new(title) if title
-        params["description"] = JSON::Any.new(description) if description
-        params["payload"] = JSON::Any.new(payload) if payload
-        params["provider_token"] = JSON::Any.new(provider_token) if provider_token
-        params["currency"] = JSON::Any.new(currency) if currency
-        params["prices"] = JSON::Any.new(prices) if prices
-        params["max_tip_amount"] = JSON::Any.new(max_tip_amount) if max_tip_amount
-        params["suggested_tip_amounts"] = JSON::Any.new(suggested_tip_amounts) if suggested_tip_amounts
-        params["start_parameter"] = JSON::Any.new(start_parameter) if start_parameter
-        params["provider_data"] = JSON::Any.new(provider_data) if provider_data
-        params["photo_url"] = JSON::Any.new(photo_url) if photo_url
-        params["photo_size"] = JSON::Any.new(photo_size) if photo_size
-        params["photo_width"] = JSON::Any.new(photo_width) if photo_width
-        params["photo_height"] = JSON::Any.new(photo_height) if photo_height
-        params["need_name"] = JSON::Any.new(need_name) if need_name
-        params["need_phone_number"] = JSON::Any.new(need_phone_number) if need_phone_number
-        params["need_email"] = JSON::Any.new(need_email) if need_email
-        params["need_shipping_address"] = JSON::Any.new(need_shipping_address) if need_shipping_address
-        params["send_phone_number_to_provider"] = JSON::Any.new(send_phone_number_to_provider) if send_phone_number_to_provider
-        params["send_email_to_provider"] = JSON::Any.new(send_email_to_provider) if send_email_to_provider
-        params["is_flexible"] = JSON::Any.new(is_flexible) if is_flexible
-        params["disable_notification"] = JSON::Any.new(disable_notification) if disable_notification
-        params["protect_content"] = JSON::Any.new(protect_content) if protect_content
-        params["allow_paid_broadcast"] = JSON::Any.new(allow_paid_broadcast) if allow_paid_broadcast
-        params["message_effect_id"] = JSON::Any.new(message_effect_id) if message_effect_id
-        params["suggested_post_parameters"] = JSON::Any.new(suggested_post_parameters) if suggested_post_parameters
-        params["reply_parameters"] = JSON::Any.new(reply_parameters) if reply_parameters
-        params["reply_markup"] = JSON::Any.new(reply_markup) if reply_markup
+        # Collect parameters for file detection
+        params_hash = {
+          "chat_id" => chat_id,
+          "message_thread_id" => message_thread_id,
+          "direct_messages_topic_id" => direct_messages_topic_id,
+          "title" => title,
+          "description" => description,
+          "payload" => payload,
+          "provider_token" => provider_token,
+          "currency" => currency,
+          "prices" => prices,
+          "max_tip_amount" => max_tip_amount,
+          "suggested_tip_amounts" => suggested_tip_amounts,
+          "start_parameter" => start_parameter,
+          "provider_data" => provider_data,
+          "photo_url" => photo_url,
+          "photo_size" => photo_size,
+          "photo_width" => photo_width,
+          "photo_height" => photo_height,
+          "need_name" => need_name,
+          "need_phone_number" => need_phone_number,
+          "need_email" => need_email,
+          "need_shipping_address" => need_shipping_address,
+          "send_phone_number_to_provider" => send_phone_number_to_provider,
+          "send_email_to_provider" => send_email_to_provider,
+          "is_flexible" => is_flexible,
+          "disable_notification" => disable_notification,
+          "protect_content" => protect_content,
+          "allow_paid_broadcast" => allow_paid_broadcast,
+          "message_effect_id" => message_effect_id,
+          "suggested_post_parameters" => suggested_post_parameters,
+          "reply_parameters" => reply_parameters,
+          "reply_markup" => reply_markup,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          chat_id: chat_id,
+          message_thread_id: message_thread_id,
+          direct_messages_topic_id: direct_messages_topic_id,
+          title: title,
+          description: description,
+          payload: payload,
+          provider_token: provider_token,
+          currency: currency,
+          prices: prices,
+          max_tip_amount: max_tip_amount,
+          suggested_tip_amounts: suggested_tip_amounts,
+          start_parameter: start_parameter,
+          provider_data: provider_data,
+          photo_url: photo_url,
+          photo_size: photo_size,
+          photo_width: photo_width,
+          photo_height: photo_height,
+          need_name: need_name,
+          need_phone_number: need_phone_number,
+          need_email: need_email,
+          need_shipping_address: need_shipping_address,
+          send_phone_number_to_provider: send_phone_number_to_provider,
+          send_email_to_provider: send_email_to_provider,
+          is_flexible: is_flexible,
+          disable_notification: disable_notification,
+          protect_content: protect_content,
+          allow_paid_broadcast: allow_paid_broadcast,
+          message_effect_id: message_effect_id,
+          suggested_post_parameters: suggested_post_parameters,
+          reply_parameters: reply_parameters,
+          reply_markup: reply_markup,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/sendInvoice"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        Message.from_json(json_response["result"].to_json)
+        result_data = json_response["result"]
+        Message.from_json(result_data.to_json)
       end
 
       # createInvoiceLink
@@ -6186,52 +6023,73 @@ module Telegram
       # Returns: String
       # See: https://core.telegram.org/bots/api#createinvoicelink
       def create_invoice_link(title : String, description : String, payload : String, currency : String, prices : Array(LabeledPrice), business_connection_id : String? = nil, provider_token : String? = nil, subscription_period : Int32? = nil, max_tip_amount : Int32? = nil, suggested_tip_amounts : Array(Int32)? = nil, provider_data : String? = nil, photo_url : String? = nil, photo_size : Int32? = nil, photo_width : Int32? = nil, photo_height : Int32? = nil, need_name : Bool? = nil, need_phone_number : Bool? = nil, need_email : Bool? = nil, need_shipping_address : Bool? = nil, send_phone_number_to_provider : Bool? = nil, send_email_to_provider : Bool? = nil, is_flexible : Bool? = nil) : String
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["business_connection_id"] = JSON::Any.new(business_connection_id) if business_connection_id
-        params["title"] = JSON::Any.new(title) if title
-        params["description"] = JSON::Any.new(description) if description
-        params["payload"] = JSON::Any.new(payload) if payload
-        params["provider_token"] = JSON::Any.new(provider_token) if provider_token
-        params["currency"] = JSON::Any.new(currency) if currency
-        params["prices"] = JSON::Any.new(prices) if prices
-        params["subscription_period"] = JSON::Any.new(subscription_period) if subscription_period
-        params["max_tip_amount"] = JSON::Any.new(max_tip_amount) if max_tip_amount
-        params["suggested_tip_amounts"] = JSON::Any.new(suggested_tip_amounts) if suggested_tip_amounts
-        params["provider_data"] = JSON::Any.new(provider_data) if provider_data
-        params["photo_url"] = JSON::Any.new(photo_url) if photo_url
-        params["photo_size"] = JSON::Any.new(photo_size) if photo_size
-        params["photo_width"] = JSON::Any.new(photo_width) if photo_width
-        params["photo_height"] = JSON::Any.new(photo_height) if photo_height
-        params["need_name"] = JSON::Any.new(need_name) if need_name
-        params["need_phone_number"] = JSON::Any.new(need_phone_number) if need_phone_number
-        params["need_email"] = JSON::Any.new(need_email) if need_email
-        params["need_shipping_address"] = JSON::Any.new(need_shipping_address) if need_shipping_address
-        params["send_phone_number_to_provider"] = JSON::Any.new(send_phone_number_to_provider) if send_phone_number_to_provider
-        params["send_email_to_provider"] = JSON::Any.new(send_email_to_provider) if send_email_to_provider
-        params["is_flexible"] = JSON::Any.new(is_flexible) if is_flexible
+        # Collect parameters for file detection
+        params_hash = {
+          "business_connection_id" => business_connection_id,
+          "title" => title,
+          "description" => description,
+          "payload" => payload,
+          "provider_token" => provider_token,
+          "currency" => currency,
+          "prices" => prices,
+          "subscription_period" => subscription_period,
+          "max_tip_amount" => max_tip_amount,
+          "suggested_tip_amounts" => suggested_tip_amounts,
+          "provider_data" => provider_data,
+          "photo_url" => photo_url,
+          "photo_size" => photo_size,
+          "photo_width" => photo_width,
+          "photo_height" => photo_height,
+          "need_name" => need_name,
+          "need_phone_number" => need_phone_number,
+          "need_email" => need_email,
+          "need_shipping_address" => need_shipping_address,
+          "send_phone_number_to_provider" => send_phone_number_to_provider,
+          "send_email_to_provider" => send_email_to_provider,
+          "is_flexible" => is_flexible,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          business_connection_id: business_connection_id,
+          title: title,
+          description: description,
+          payload: payload,
+          provider_token: provider_token,
+          currency: currency,
+          prices: prices,
+          subscription_period: subscription_period,
+          max_tip_amount: max_tip_amount,
+          suggested_tip_amounts: suggested_tip_amounts,
+          provider_data: provider_data,
+          photo_url: photo_url,
+          photo_size: photo_size,
+          photo_width: photo_width,
+          photo_height: photo_height,
+          need_name: need_name,
+          need_phone_number: need_phone_number,
+          need_email: need_email,
+          need_shipping_address: need_shipping_address,
+          send_phone_number_to_provider: send_phone_number_to_provider,
+          send_email_to_provider: send_email_to_provider,
+          is_flexible: is_flexible,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/createInvoiceLink"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"].as_s
+        result_data = json_response["result"]
+        String.from_json(result_data.to_json)
       end
 
       # answerShippingQuery
@@ -6240,34 +6098,37 @@ module Telegram
       # Returns: Bool
       # See: https://core.telegram.org/bots/api#answershippingquery
       def answer_shipping_query(shipping_query_id : String, ok : Bool, shipping_options : Array(ShippingOption)? = nil, error_message : String? = nil) : Bool
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["shipping_query_id"] = JSON::Any.new(shipping_query_id) if shipping_query_id
-        params["ok"] = JSON::Any.new(ok) if ok
-        params["shipping_options"] = JSON::Any.new(shipping_options) if shipping_options
-        params["error_message"] = JSON::Any.new(error_message) if error_message
+        # Collect parameters for file detection
+        params_hash = {
+          "shipping_query_id" => shipping_query_id,
+          "ok" => ok,
+          "shipping_options" => shipping_options,
+          "error_message" => error_message,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          shipping_query_id: shipping_query_id,
+          ok: ok,
+          shipping_options: shipping_options,
+          error_message: error_message,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/answerShippingQuery"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"].as_bool
+        result_data = json_response["result"]
+        Bool.from_json(result_data.to_json)
       end
 
       # answerPreCheckoutQuery
@@ -6276,33 +6137,35 @@ module Telegram
       # Returns: Bool
       # See: https://core.telegram.org/bots/api#answerprecheckoutquery
       def answer_pre_checkout_query(pre_checkout_query_id : String, ok : Bool, error_message : String? = nil) : Bool
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["pre_checkout_query_id"] = JSON::Any.new(pre_checkout_query_id) if pre_checkout_query_id
-        params["ok"] = JSON::Any.new(ok) if ok
-        params["error_message"] = JSON::Any.new(error_message) if error_message
+        # Collect parameters for file detection
+        params_hash = {
+          "pre_checkout_query_id" => pre_checkout_query_id,
+          "ok" => ok,
+          "error_message" => error_message,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          pre_checkout_query_id: pre_checkout_query_id,
+          ok: ok,
+          error_message: error_message,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/answerPreCheckoutQuery"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"].as_bool
+        result_data = json_response["result"]
+        Bool.from_json(result_data.to_json)
       end
 
       # getMyStarBalance
@@ -6311,30 +6174,24 @@ module Telegram
       # Returns: StarAmount
       # See: https://core.telegram.org/bots/api#getmystarbalance
       def get_my_star_balance() : StarAmount
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(        )
 
-        # Make HTTP request
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/getMyStarBalance"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        StarAmount.from_json(json_response["result"].to_json)
+        result_data = json_response["result"]
+        StarAmount.from_json(result_data.to_json)
       end
 
       # getStarTransactions
@@ -6343,32 +6200,33 @@ module Telegram
       # Returns: StarTransactions
       # See: https://core.telegram.org/bots/api#getstartransactions
       def get_star_transactions(offset : Int32? = nil, limit : Int32? = nil) : StarTransactions
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["offset"] = JSON::Any.new(offset) if offset
-        params["limit"] = JSON::Any.new(limit) if limit
+        # Collect parameters for file detection
+        params_hash = {
+          "offset" => offset,
+          "limit" => limit,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          offset: offset,
+          limit: limit,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/getStarTransactions"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        StarTransactions.from_json(json_response["result"].to_json)
+        result_data = json_response["result"]
+        StarTransactions.from_json(result_data.to_json)
       end
 
       # refundStarPayment
@@ -6377,32 +6235,33 @@ module Telegram
       # Returns: Bool
       # See: https://core.telegram.org/bots/api#refundstarpayment
       def refund_star_payment(user_id : Int32, telegram_payment_charge_id : String) : Bool
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["user_id"] = JSON::Any.new(user_id) if user_id
-        params["telegram_payment_charge_id"] = JSON::Any.new(telegram_payment_charge_id) if telegram_payment_charge_id
+        # Collect parameters for file detection
+        params_hash = {
+          "user_id" => user_id,
+          "telegram_payment_charge_id" => telegram_payment_charge_id,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          user_id: user_id,
+          telegram_payment_charge_id: telegram_payment_charge_id,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/refundStarPayment"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"].as_bool
+        result_data = json_response["result"]
+        Bool.from_json(result_data.to_json)
       end
 
       # editUserStarSubscription
@@ -6411,33 +6270,35 @@ module Telegram
       # Returns: Bool
       # See: https://core.telegram.org/bots/api#edituserstarsubscription
       def edit_user_star_subscription(user_id : Int32, telegram_payment_charge_id : String, is_canceled : Bool) : Bool
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["user_id"] = JSON::Any.new(user_id) if user_id
-        params["telegram_payment_charge_id"] = JSON::Any.new(telegram_payment_charge_id) if telegram_payment_charge_id
-        params["is_canceled"] = JSON::Any.new(is_canceled) if is_canceled
+        # Collect parameters for file detection
+        params_hash = {
+          "user_id" => user_id,
+          "telegram_payment_charge_id" => telegram_payment_charge_id,
+          "is_canceled" => is_canceled,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          user_id: user_id,
+          telegram_payment_charge_id: telegram_payment_charge_id,
+          is_canceled: is_canceled,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/editUserStarSubscription"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"].as_bool
+        result_data = json_response["result"]
+        Bool.from_json(result_data.to_json)
       end
 
       # setPassportDataErrors
@@ -6447,32 +6308,33 @@ module Telegram
       # Returns: Bool
       # See: https://core.telegram.org/bots/api#setpassportdataerrors
       def set_passport_data_errors(user_id : Int32, errors : Array(PassportElementError)) : Bool
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["user_id"] = JSON::Any.new(user_id) if user_id
-        params["errors"] = JSON::Any.new(errors) if errors
+        # Collect parameters for file detection
+        params_hash = {
+          "user_id" => user_id,
+          "errors" => errors,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          user_id: user_id,
+          errors: errors,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/setPassportDataErrors"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"].as_bool
+        result_data = json_response["result"]
+        Bool.from_json(result_data.to_json)
       end
 
       # sendGame
@@ -6481,40 +6343,49 @@ module Telegram
       # Returns: Message
       # See: https://core.telegram.org/bots/api#sendgame
       def send_game(chat_id : Int32, game_short_name : String, business_connection_id : String? = nil, message_thread_id : Int32? = nil, disable_notification : Bool? = nil, protect_content : Bool? = nil, allow_paid_broadcast : Bool? = nil, message_effect_id : String? = nil, reply_parameters : ReplyParameters? = nil, reply_markup : InlineKeyboardMarkup? = nil) : Message
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["business_connection_id"] = JSON::Any.new(business_connection_id) if business_connection_id
-        params["chat_id"] = JSON::Any.new(chat_id) if chat_id
-        params["message_thread_id"] = JSON::Any.new(message_thread_id) if message_thread_id
-        params["game_short_name"] = JSON::Any.new(game_short_name) if game_short_name
-        params["disable_notification"] = JSON::Any.new(disable_notification) if disable_notification
-        params["protect_content"] = JSON::Any.new(protect_content) if protect_content
-        params["allow_paid_broadcast"] = JSON::Any.new(allow_paid_broadcast) if allow_paid_broadcast
-        params["message_effect_id"] = JSON::Any.new(message_effect_id) if message_effect_id
-        params["reply_parameters"] = JSON::Any.new(reply_parameters) if reply_parameters
-        params["reply_markup"] = JSON::Any.new(reply_markup) if reply_markup
+        # Collect parameters for file detection
+        params_hash = {
+          "business_connection_id" => business_connection_id,
+          "chat_id" => chat_id,
+          "message_thread_id" => message_thread_id,
+          "game_short_name" => game_short_name,
+          "disable_notification" => disable_notification,
+          "protect_content" => protect_content,
+          "allow_paid_broadcast" => allow_paid_broadcast,
+          "message_effect_id" => message_effect_id,
+          "reply_parameters" => reply_parameters,
+          "reply_markup" => reply_markup,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          business_connection_id: business_connection_id,
+          chat_id: chat_id,
+          message_thread_id: message_thread_id,
+          game_short_name: game_short_name,
+          disable_notification: disable_notification,
+          protect_content: protect_content,
+          allow_paid_broadcast: allow_paid_broadcast,
+          message_effect_id: message_effect_id,
+          reply_parameters: reply_parameters,
+          reply_markup: reply_markup,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/sendGame"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        Message.from_json(json_response["result"].to_json)
+        result_data = json_response["result"]
+        Message.from_json(result_data.to_json)
       end
 
       # setGameScore
@@ -6523,37 +6394,43 @@ module Telegram
       # Returns: JSON::Any
       # See: https://core.telegram.org/bots/api#setgamescore
       def set_game_score(user_id : Int32, score : Int32, force : Bool? = nil, disable_edit_message : Bool? = nil, chat_id : Int32? = nil, message_id : Int32? = nil, inline_message_id : String? = nil) : JSON::Any
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["user_id"] = JSON::Any.new(user_id) if user_id
-        params["score"] = JSON::Any.new(score) if score
-        params["force"] = JSON::Any.new(force) if force
-        params["disable_edit_message"] = JSON::Any.new(disable_edit_message) if disable_edit_message
-        params["chat_id"] = JSON::Any.new(chat_id) if chat_id
-        params["message_id"] = JSON::Any.new(message_id) if message_id
-        params["inline_message_id"] = JSON::Any.new(inline_message_id) if inline_message_id
+        # Collect parameters for file detection
+        params_hash = {
+          "user_id" => user_id,
+          "score" => score,
+          "force" => force,
+          "disable_edit_message" => disable_edit_message,
+          "chat_id" => chat_id,
+          "message_id" => message_id,
+          "inline_message_id" => inline_message_id,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          user_id: user_id,
+          score: score,
+          force: force,
+          disable_edit_message: disable_edit_message,
+          chat_id: chat_id,
+          message_id: message_id,
+          inline_message_id: inline_message_id,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/setGameScore"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"]
+        result_data = json_response["result"]
+        JSON::Any.from_json(result_data.to_json)
       end
 
       # getGameHighScores
@@ -6562,34 +6439,37 @@ module Telegram
       # Returns: Array(GameHighScore)
       # See: https://core.telegram.org/bots/api#getgamehighscores
       def get_game_high_scores(user_id : Int32, chat_id : Int32? = nil, message_id : Int32? = nil, inline_message_id : String? = nil) : Array(GameHighScore)
-        # Build JSON request parameters
-        params = Hash(String, JSON::Any).new
-        params["user_id"] = JSON::Any.new(user_id) if user_id
-        params["chat_id"] = JSON::Any.new(chat_id) if chat_id
-        params["message_id"] = JSON::Any.new(message_id) if message_id
-        params["inline_message_id"] = JSON::Any.new(inline_message_id) if inline_message_id
+        # Collect parameters for file detection
+        params_hash = {
+          "user_id" => user_id,
+          "chat_id" => chat_id,
+          "message_id" => message_id,
+          "inline_message_id" => inline_message_id,
+        }
 
-        # Make HTTP request
+        # Build JSON request parameters (method never accepts files)
+        params = build_request_hash(
+          user_id: user_id,
+          chat_id: chat_id,
+          message_id: message_id,
+          inline_message_id: inline_message_id,
+        )
+
+        # Make HTTP request using enhanced client
         url = "#{@api_url}/bot#{@token}/getGameHighScores"
-        response = HTTP::Client.post(url,
+        response = @http_client.post(url,
           headers: HTTP::Headers{"Content-Type" => "application/json"},
           body: params.to_json
         )
 
-        # Handle response
-        unless response.success?
-          raise "Telegram API error: #{response.status_code} - #{response.body}"
-        end
-
-        # Parse response
+        # Parse response - extract and deserialize the result
         json_response = JSON.parse(response.body)
-
         unless json_response["ok"]?.try(&.as_bool)
           error_desc = json_response["description"]?.try(&.as_s) || "Unknown error"
-          raise "Telegram API error: #{error_desc}"
+          raise "API Error: " + error_desc
         end
-
-        json_response["result"].as_a.map { |item| GameHighScore.from_json(item.to_json) }
+        result_data = json_response["result"]
+        Array(GameHighScore).from_json(result_data.to_json)
       end
 
     end

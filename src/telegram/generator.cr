@@ -1,6 +1,9 @@
 require "json"
 require "http"
 require "file_utils"
+require "./client_generator"
+require "./type_generator"
+require "./main_module_generator"
 
 module Telegram
   # Error raised when API specification cannot be fetched or parsed
@@ -128,3 +131,8 @@ module Telegram
     end
   end
 end
+
+output_dir = ARGV.first? || "./src/telegram/generated"
+puts "Generating Telegram client into #{output_dir}..."
+Telegram::Generator.new(output_dir).generate
+puts "Generation complete."
