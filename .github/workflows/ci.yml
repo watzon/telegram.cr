@@ -13,8 +13,8 @@ jobs:
     strategy:
       matrix:
         crystal:
-          - 1.12.0
-          - 1.13.0
+          - 1.16.3
+          - 1.17.1
           - latest
 
     steps:
@@ -51,4 +51,3 @@ jobs:
         bash ./generate.sh
         crystal build src/telegram/generated/telegram.cr
         crystal build src/telegram/generated/client.cr
-        
